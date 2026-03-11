@@ -19,16 +19,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         margin-bottom: 25px;
     }
-    .footer {
-        position: fixed;
-        bottom: 10px;
-        right: 10px;
-        font-size: 12px;
-        color: #666;
-        background: rgba(255,255,255,0.8);
-        padding: 5px 10px;
-        border-radius: 5px;
-    }
     h1 { color: #004b8d !important; border: none !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -38,42 +28,78 @@ st.markdown("""
 def generar_pdf(tematica, porcentaje, atributos):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Encabezado - Usamos Helvetica (estándar en FPDF)
     pdf.set_font("Helvetica", 'B', 16)
     pdf.set_text_color(0, 75, 141)
     pdf.cell(190, 10, f"Reporte de Satisfaccion: {tematica}", ln=True, align='C')
-    
     pdf.set_font("Helvetica", size=10)
     pdf.set_text_color(100)
     pdf.cell(190, 10, "Fuente: ENCIG 2023 - Estado de Morelos", ln=True, align='C')
     pdf.ln(10)
-    
-    # Metrica
     pdf.set_fill_color(240, 247, 249)
     pdf.set_font("Helvetica", 'B', 12)
     pdf.set_text_color(0)
     pdf.cell(190, 15, f"Satisfaccion General del Servicio: {porcentaje:.1f}%", ln=True, fill=True, align='L')
     pdf.ln(5)
-    
-    # Tabla
     pdf.set_font("Helvetica", 'B', 11)
     pdf.cell(140, 10, "Atributo Evaluado", border=1, align='C')
     pdf.cell(50, 10, "Cumplimiento (%)", border=1, align='C', ln=True)
-    
     pdf.set_font("Helvetica", size=10)
     for item in atributos:
         pdf.cell(140, 8, item['Atributo'], border=1)
         pdf.cell(50, 8, f"{item['Porcentaje']:.1f}%", border=1, ln=True, align='C')
-        
     pdf.ln(20)
     pdf.set_font("Helvetica", 'I', 8)
-    pdf.multi_cell(190, 5, "Nota: Este reporte fue generado automaticamente a partir de los microdatos de la ENCIG procesados con el factor de expansion FAC_P18.")
-    
+    pdf.multi_cell(190, 5, "Nota: Este reporte fue generado automaticamente a partir de los microdatos de la ENCIG.")
     return pdf.output()
 
+def renderizar_problemas_entidad(df):
+    st.title("🚨 Problemas más importantes en la entidad")
+    st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+    
+    # Mapeo corregido con ceros
+    problemas_map = {
+        'P3_1_01': 'Inseguridad y delincuencia',
+        'P3_1_02': 'Corrupción',
+        'P3_1_03': 'Mal desempeño del gobierno',
+        'P3_1_04': 'Desempleo',
+        'P3_1_05': 'Pobreza',
+        'P3_1_06': 'Mala atención en centros de salud',
+        'P3_1_07': 'Mala aplicación de la ley',
+        'P3_1_08': 'Falta de coordinación gubernamental',
+        'P3_1_09': 'Baja calidad de educación pública',
+        'P3_1_10': 'Falta de rendición de cuentas',
+        'P3_1_11': 'Desastres naturales',
+        'P3_1_99': 'Ninguno'
+    }
+    
+    res_problemas = []
+    df['FAC_P18'] = pd.to_numeric(df['FAC_P18'], errors='coerce').fillna(0)
+    total_poblacion = df['FAC_P18'].sum()
+    
+    for col, nombre in problemas_map.items():
+        if col in df.columns:
+            # Asegurar que los datos de la columna sean numéricos
+            val_col = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            pob_afirmante = df[val_col == 1]['FAC_P18'].sum()
+            porcentaje = (pob_afirmante / total_poblacion) * 100 if total_poblacion > 0 else 0
+            res_problemas.append({'Problema': nombre, 'Porcentaje': porcentaje})
+    
+    df_prob = pd.DataFrame(res_problemas).sort_values(by='Porcentaje', ascending=True)
+    
+    fig_prob = px.bar(
+        df_prob, x='Porcentaje', y='Problema', orientation='h',
+        text_auto='.1f', color_discrete_sequence=['#8E24AA']
+    )
+    
+    fig_prob.update_layout(
+        height=600, xaxis_title="Porcentaje (%)", yaxis_title="",
+        margin=dict(l=0, r=50, t=30, b=0), xaxis=dict(range=[0, 100])
+    )
+    
+    st.plotly_chart(fig_prob, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 def renderizar_seccion(df, titulo, col_sat, cols_attr, labels_attr, color_principal, color_barras="#168AAD", umbral=8, filtro_col=None):
-    # Cálculos
     df[col_sat] = pd.to_numeric(df[col_sat], errors='coerce')
     df_base = df[df[filtro_col] == 1].copy() if filtro_col else df.copy()
     df_sat_valid = df_base[(df_base[col_sat] >= 0) & (df_base[col_sat] <= 10)].copy()
@@ -95,11 +121,9 @@ def renderizar_seccion(df, titulo, col_sat, cols_attr, labels_attr, color_princi
     with c1:
         st.markdown('<div class="plot-container">', unsafe_allow_html=True)
         st.subheader("📍 Nivel de Satisfacción")
-        fig_sat = px.bar(
-            pd.DataFrame({'C':['Población Satisfecha'], 'V':[porcentaje_oficial]}), 
-            x='V', y='C', orientation='h', range_x=[0,100], text_auto='.1f', 
-            color_discrete_sequence=[color_principal]
-        )
+        fig_sat = px.bar(pd.DataFrame({'C':['Población Satisfecha'], 'V':[porcentaje_oficial]}), 
+                        x='V', y='C', orientation='h', range_x=[0,100], text_auto='.1f', 
+                        color_discrete_sequence=[color_principal])
         fig_sat.update_layout(height=300, xaxis_title="%", yaxis_title="", margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_sat, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -121,11 +145,7 @@ def renderizar_seccion(df, titulo, col_sat, cols_attr, labels_attr, color_princi
         st.plotly_chart(fig_attr, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.session_state.ultimos_datos = {
-        'titulo': titulo,
-        'porcentaje': porcentaje_oficial,
-        'atributos': res
-    }
+    st.session_state.ultimos_datos = {'titulo': titulo, 'porcentaje': porcentaje_oficial, 'atributos': res}
 
 @st.cache_data
 def load_data():
@@ -137,49 +157,54 @@ try:
     df = load_data()
 
     with st.sidebar:
-        st.image("https://www.inegi.org.mx/app/img/logoin_v2.png", width=150)
-        st.title("ENCIG 2023")
-        categoria = st.selectbox("1. Categoría:", ["1. Servicios Públicos Básicos", "5. Corrupción"])
+        # Intentar cargar el logo local
+        try:
+            st.image("logo_encig.png", width=200)
+        except:
+            st.write("### ENCIG 2023")
+            
+        st.title("Menú de Navegación")
+        categoria = st.selectbox("1. Categoría:", [
+            "1. Servicios Públicos Básicos", 
+            "2. Problemas Importantes" 
+        ])
 
+        tematica = None
         if categoria == "1. Servicios Públicos Básicos":
             tematica = st.radio("2. Temática:", 
                 ["Agua potable", "Drenaje y alcantarillado", "Alumbrado público", "Recolección de Basura", "Policia", "Parques y jardínes públicos", "Calles y avenidas", "Carreteras y Caminos Libres"])
 
-    if tematica == "Agua potable":
-        renderizar_seccion(df, "Agua Potable", 'P4_1B', ['P4_1_1', 'P4_1_2', 'P4_1_3', 'P4_1_4', 'P4_1_5'], ['Suministro Constante', 'Agua Pura', 'Bebible', 'Sin Fugas', 'Red Pública'], '#0077B6', umbral=7, filtro_col='P4_1_5')
-    elif tematica == "Drenaje y alcantarillado":
-        renderizar_seccion(df, "Drenaje y Alcantarillado", 'P4_2B', ['P4_2_1', 'P4_2_3', 'P4_2_4'], ['Conexión Red', 'Sin Fugas', 'Mantenimiento'], '#52B788', umbral=8)
-    elif tematica == "Alumbrado público":
-        renderizar_seccion(df, "Alumbrado Público", 'P4_3B', ['P4_3_1', 'P4_3_2', 'P4_3_3'], ['Iluminación Adecuada', 'Mantenimiento', 'Sin Fallas'], '#FFB703', color_barras='#FB8500', umbral=8)
-    elif tematica == "Recolección de Basura":
-        renderizar_seccion(df, "Recolección de Basura", 'P4_5B', ['P4_5_1', 'P4_5_2', 'P4_5_3'], ['Oportuna', 'Servicio Gratuito', 'Frecuencia Adecuada'], '#2D6A4F', umbral=8)
-    elif tematica == "Policia":
-        renderizar_seccion(df, "Seguridad Pública (Policía)", 'P4_6B', ['P4_6_1', 'P4_6_2'], ['Disposición Ayuda', 'Sensación Seguridad'], '#003049', umbral=8)
-    elif tematica == "Parques y jardínes públicos":
-        renderizar_seccion(df, "Parques y Jardines", 'P4_4B', ['P4_4_1', 'P4_4_2', 'P4_4_3', 'P4_4_4'], ['Horarios Accesibles', 'Cercanía', 'Limpieza e Imagen', 'Seguridad'], '#2D6A4F', color_barras='#74C69D', umbral=8)
-    elif tematica == "Calles y avenidas":
-        renderizar_seccion(df, "Calles y Avenidas", 'P4_7B', ['P4_7_1', 'P4_7_2', 'P4_7_3'], ['En buen estado', 'Reparación de baches', 'Semáforos funcionales'], '#495057', color_barras='#6C757D', umbral=8)
-    elif tematica == "Carreteras y Caminos Libres":
-        renderizar_seccion(df, "Carreteras y Caminos Libres", 'P4_8B', ['P4_8_1', 'P4_8_2', 'P4_8_3'], ['Sin Baches', 'Seguridad/Delincuencia', 'Comunicación'], '#212529', color_barras='#ADB5BD', umbral=8)
+    # Lógica de renderizado según selección
+    if categoria == "2. Problemas Importantes":
+        renderizar_problemas_entidad(df)
+        
+    elif categoria == "1. Servicios Públicos Básicos":
+        if tematica == "Agua potable":
+            renderizar_seccion(df, "Agua Potable", 'P4_1B', ['P4_1_1', 'P4_1_2', 'P4_1_3', 'P4_1_4', 'P4_1_5'], ['Suministro Constante', 'Agua Pura', 'Bebible', 'Sin Fugas', 'Red Pública'], '#0077B6', umbral=7, filtro_col='P4_1_5')
+        elif tematica == "Drenaje y alcantarillado":
+            renderizar_seccion(df, "Drenaje y Alcantarillado", 'P4_2B', ['P4_2_1', 'P4_2_3', 'P4_2_4'], ['Conexión Red', 'Sin Fugas', 'Mantenimiento'], '#52B788', umbral=8)
+        elif tematica == "Alumbrado público":
+            renderizar_seccion(df, "Alumbrado Público", 'P4_3B', ['P4_3_1', 'P4_3_2', 'P4_3_3'], ['Iluminación Adecuada', 'Mantenimiento', 'Sin Fallas'], '#FFB703', color_barras='#FB8500', umbral=8)
+        elif tematica == "Recolección de Basura":
+            renderizar_seccion(df, "Recolección de Basura", 'P4_5B', ['P4_5_1', 'P4_5_2', 'P4_5_3'], ['Oportuna', 'Servicio Gratuito', 'Frecuencia Adecuada'], '#2D6A4F', umbral=8)
+        elif tematica == "Policia":
+            renderizar_seccion(df, "Seguridad Pública (Policía)", 'P4_6B', ['P4_6_1', 'P4_6_2'], ['Disposición Ayuda', 'Sensación Seguridad'], '#003049', umbral=8)
+        elif tematica == "Parques y jardínes públicos":
+            renderizar_seccion(df, "Parques y Jardines", 'P4_4B', ['P4_4_1', 'P4_4_2', 'P4_4_3', 'P4_4_4'], ['Horarios Accesibles', 'Cercanía', 'Limpieza e Imagen', 'Seguridad'], '#2D6A4F', color_barras='#74C69D', umbral=8)
+        elif tematica == "Calles y avenidas":
+            renderizar_seccion(df, "Calles y Avenidas", 'P4_7B', ['P4_7_1', 'P4_7_2', 'P4_7_3'], ['En buen estado', 'Reparación de baches', 'Semáforos funcionales'], '#495057', color_barras='#6C757D', umbral=8)
+        elif tematica == "Carreteras y Caminos Libres":
+            renderizar_seccion(df, "Carreteras y Caminos Libres", 'P4_8B', ['P4_8_1', 'P4_8_2', 'P4_8_3'], ['Sin Baches', 'Seguridad/Delincuencia', 'Comunicación'], '#212529', color_barras='#ADB5BD', umbral=8)
 
     # Notas al pie
     st.markdown("---")
     col_nota1, col_nota2 = st.columns(2)
     with col_nota1:
         st.caption("📌 **Nota Metodológica:**")
-        st.markdown("<div style='font-size: 0.8rem; color: #555;'>La 'Satisfacción Oficial' se calcula sumando las frecuencias expandidas de las categorías aprobatorias...</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size: 0.8rem; color: #555;'>Los porcentajes se calculan utilizando el factor de expansión (FAC_P18) para representar a la población total de Morelos.</div>", unsafe_allow_html=True)
     with col_nota2:
         st.caption("🏢 **Fuente de Datos:**")
         st.markdown("<div style='font-size: 0.8rem; color: #555;'>Información obtenida de la <b>ENCIG 2023</b> (INEGI).</div>", unsafe_allow_html=True)
 
-    # Botón PDF en el Sidebar
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📄 Exportar Resultados")
-    if st.sidebar.button("Generar Reporte PDF"):
-        if 'ultimos_datos' in st.session_state:
-            d = st.session_state.ultimos_datos
-            pdf_output = generar_pdf(d['titulo'], d['porcentaje'], d['atributos'])
-            st.sidebar.download_button(label="⬇️ Descargar archivo", data=bytes(pdf_output), file_name=f"Reporte_{tematica}.pdf", mime="application/pdf")
-
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Error crítico en la aplicación: {e}")
