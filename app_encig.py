@@ -23,6 +23,16 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# 3. Encabezado Institucional (Título Global)
+st.markdown("""
+    <div style='text-align: center; padding: 10px; border-bottom: 2px solid #004b8d; margin-bottom: 20px;'>
+        <h1 style='margin: 0; font-size: 28px;'>Encuesta Nacional de Calidad e Impacto Gubernamental (ENCIG) </h1>
+        <p style='color: #666; font-style: italic;'>Análisis de resultados para el Estado de Morelos</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- FUNCIONES DE APOYO ---
+
 # --- FUNCIONES DE APOYO ---
 
 def generar_pdf(tematica, porcentaje, atributos):
