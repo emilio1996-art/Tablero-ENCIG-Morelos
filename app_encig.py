@@ -5,21 +5,32 @@ import plotly.express as px
 # 1. Configuración de la página
 st.set_page_config(page_title="Tablero ENCIG Morelos", layout="wide")
 
-# 2. Estilo Visual Personalizado
+# 2. Estilo Visual Adaptativo
 st.markdown("""
     <style>
-    .stApp { background-color: #F4F7F9; }
-    [data-testid="stMetricValue"] { font-size: 32px; color: #004b8d; font-weight: bold; }
-    .plot-container { background-color: white; padding: 20px; border-radius: 10px; 
-                      box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
-    h1 { color: #004b8d !important; border: none !important; }
+    /* Contenedores con un fondo sutil que respeta el contraste */
+    .plot-container { 
+        padding: 20px; 
+        border-radius: 10px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+        margin-bottom: 25px;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+    }
+
+    /* Tarjetas de KPI sin fondo blanco fijo */
     .metric-card { 
-        background-color: white; 
         padding: 20px; 
         border-radius: 10px; 
         border-top: 4px solid #004b8d; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         text-align: center;
+        background-color: rgba(128, 128, 128, 0.05); /* Fondo casi transparente que se adapta */
+    }
+    
+    .leyenda-satisfaccion {
+        text-align: center; 
+        font-weight: bold; 
+        margin-bottom: -10px;
     }
     </style>
     """, unsafe_allow_html=True)
