@@ -232,21 +232,55 @@ try:
             st.markdown('</div>', unsafe_allow_html=True)
 
         elif tematica == "Energía Eléctrica":
-            # 1. Indicador de Satisfacción General para Energía Eléctrica (P5_8B)
-            renderizar_satisfaccion(df, 'P5_8B', "Servicio: Energía Eléctrica", "#F1C40F", umbral=8)
+            # 1. Indicador de Satisfacción General (P5_8B)
+            # El INEGI suele reportar satisfacción en una escala donde valores altos (8-10) 
+            # se consideran el estándar de aprobación.
+            renderizar_satisfaccion(df, 'P5_8B', "Suministro de energía eléctrica", "#F1C40F", umbral=8)
 
             # 2. Evaluación de Atributos Específicos
-            # P5_8_1: Suministro sin apagones constantes
-            # P5_8_2: Mantenimiento oportuno
-            # P5_8_3: Atención inmediata de fallas
+            # Ajuste de nombres según la terminología exacta de la imagen oficial:
             atributos_luz = {
-                'P5_8_1': 'Suministro sin apagones',
-                'P5_8_2': 'Mantenimiento oportuno',
-                'P5_8_3': 'Atención rápida de fallas'
+                'P5_8_1': 'Suministro de energía eléctrica sin apagones constantes',
+                'P5_8_2': 'Estable sin variación de voltaje',
+                'P5_8_3': 'Atención rápida de fallas por parte del personal'
             }
             
-            # Reutilizamos la función procesar_y_graficar con color representativo (Amarillo/Dorado)
-            procesar_y_graficar(df, atributos_luz, "Evaluación de Atributos del Servicio", color="#F39C12")
+            # Usamos el dataframe filtrado para este servicio para asegurar consistencia en los porcentajes
+            res_luz = []
+            df['FAC_P18'] = pd.to_numeric(df['FAC_P18'], errors='coerce').fillna(0)
+            
+            for col, nombre in atributos_luz.items():
+                if col in df.columns:
+                    val_col = pd.to_numeric(df[col], errors='coerce')
+                    # INEGI mide satisfacción con el atributo si la respuesta es 1 (Sí)
+                    df_v = df[val_col.isin([1, 2, 9])]
+                    total_resp = df_v['FAC_P18'].sum()
+                    pob_si = df_v[val_col == 1]['FAC_P18'].sum()
+                    porc = (pob_si / total_resp * 100) if total_resp > 0 else 0
+                    res_luz.append({'Atributo': nombre, 'Porcentaje': porc})
+            
+            df_plot_luz = pd.DataFrame(res_luz).sort_values(by='Porcentaje', ascending=True)
+            
+            st.markdown("### Características del servicio")
+            st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+            fig_luz = px.bar(
+                df_plot_luz, 
+                x='Porcentaje', 
+                y='Atributo', 
+                orientation='h', 
+                text_auto='.1f', 
+                color_discrete_sequence=['#F39C12']
+            )
+            # Ajustamos el rango de X a 100 para visualizar el porcentaje real
+            fig_luz.update_layout(
+                height=350, 
+                xaxis_range=[0, 105], 
+                xaxis_title="%", 
+                yaxis_title="",
+                margin=dict(l=0, r=20, t=20, b=20)
+            )
+            st.plotly_chart(fig_luz, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.caption("📌 Fuente: ENCIG 2023, INEGI.")
