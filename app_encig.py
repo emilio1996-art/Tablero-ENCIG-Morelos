@@ -169,22 +169,44 @@ with st.sidebar:
 
 if categoria == "Pantalla principal":
     st.markdown("## 📊 Panorama General – Morelos")
+    
+    # --- FILA 1: UNIVERSO DE ESTUDIO (DESTACADO) ---
+    pob_total_18 = fac_total(df)
+    st.subheader("Universo de Estudio")
+    st.metric(
+        label="Población representada (18 años y más)", 
+        value=f"{pob_total_18:,.0f}", 
+        help="Cálculo basado en el factor de expansión FAC_P18 de la ENCIG 2023 para el estado de Morelos."
+    )
+    
+    st.divider() # Línea sutil de separación
+
+    # --- FILA 2: INDICADORES CLAVE (KPIs) ---
     c1, c2, c3, c4 = st.columns(4)
     pp, tabla = principal_problema(df)
-    
+
     c1.metric("Principal problema", pp["Problema"], f"{pp['Porcentaje']:.1f}%")
     c2.metric("Corrupción frecuente", f"{corrupcion_frecuente(df):.1f}%")
     c3.metric("Satisfacción servicios", f"{satisfaccion_promedio_servicios(df):.1f}%")
     c4.metric("Interacción gobierno", f"{interaccion_gob(df):.1f}%")
 
+    # --- FILA 3: GRÁFICA DE PERCEPCIÓN ---
     st.markdown("### Percepción de problemas en la entidad")
-    fig = px.bar(tabla, x="Porcentaje", y="Problema", orientation="h", text_auto=".1f", color_discrete_sequence=["#C0392B"])
+    fig = px.bar(
+        tabla, x="Porcentaje", y="Problema", 
+        orientation="h", text_auto=".1f", 
+        color_discrete_sequence=["#C0392B"]
+    )
+    fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- NOTAS METODOLÓGICAS ---
 
     with st.expander("ℹ️ Notas Metodológicas y Glosario de Indicadores"):
         st.markdown("""
         ### **Precisiones Metodológicas**
         Los datos corresponden exclusivamente al estado de **Morelos** y han sido procesados utilizando el **Factor de Expansión (FAC_P18)** de la ENCIG 2023.
+        * **Población Representada:** Es la suma de los factores de expansión, indicando a cuántos ciudadanos reales equivale la muestra.
         * **Cálculo de Porcentajes:** Siguiendo la metodología de los boletines de prensa de INEGI, el denominador utilizado para todos los indicadores es la **población total de 18 años y más**, permitiendo una comparativa directa con las gráficas oficiales nacionales.
         ---
         ### **Definición de Indicadores**
