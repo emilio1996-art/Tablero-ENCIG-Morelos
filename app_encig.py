@@ -1,6 +1,7 @@
 # ======================================================
 # TABLERO ENCIG 2023 – ESTADO DE MORELOS
 # Pantalla Ejecutiva + Servicios Públicos Básicos
+# Vista individual y Vista tipo panel
 # ======================================================
 
 import streamlit as st
@@ -19,7 +20,7 @@ st.set_page_config(
 st.markdown("""
 <style>
 .plot-container { 
-    padding: 20px; border-radius: 10px; 
+    padding: 15px; border-radius: 10px; 
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     border: 1px solid rgba(128,128,128,0.2);
     margin-bottom: 20px;
@@ -91,48 +92,47 @@ def interaccion_gob(df):
     return df_d["FAC_P18"].sum() / fac_total(df) * 100
 
 # ------------------------------------------------------
-# FUNCIÓN GENÉRICA – SERVICIOS BÁSICOS
+# FUNCIONES – SERVICIOS BÁSICOS
 # ------------------------------------------------------
 
-def grafica_servicio_basico(df, titulo, col_calif, atributos, color):
-    st.subheader(titulo)
-
-    # Satisfacción general
-    v = pd.to_numeric(df[col_calif], errors="coerce")
+def satisfaccion_8a10(df, col):
+    v = pd.to_numeric(df[col], errors="coerce")
     df_v = df[(v >= 1) & (v <= 10)]
     total = df_v["FAC_P18"].sum()
     sat = df_v[v >= 8]["FAC_P18"].sum()
-    porc = (sat / total * 100) if total > 0 else 0
+    return (sat / total * 100) if total > 0 else 0
 
-    st.metric("Satisfacción (8 a 10)", f"{porc:.1f}%")
-
-    # Atributos
-    datos = []
+def tabla_atributos(df, atributos):
+    filas = []
     for col, nombre in atributos.items():
-        vals = pd.to_numeric(df[col], errors="coerce")
-        df_a = df[vals.isin([1, 2])]
-        tot = df_a["FAC_P18"].sum()
-        si = df_a[vals == 1]["FAC_P18"].sum()
-        datos.append({
+        v = pd.to_numeric(df[col], errors="coerce")
+        df_v = df[v.isin([1,2])]
+        total = df_v["FAC_P18"].sum()
+        si = df_v[v == 1]["FAC_P18"].sum()
+        filas.append({
             "Característica": nombre,
-            "Porcentaje": (si / tot * 100) if tot > 0 else 0
+            "Porcentaje": (si / total * 100) if total > 0 else 0
         })
+    return pd.DataFrame(filas).sort_values("Porcentaje")
 
-    df_plot = pd.DataFrame(datos).sort_values("Porcentaje")
-
-    fig = px.bar(
-        df_plot,
-        x="Porcentaje",
-        y="Característica",
-        orientation="h",
-        text_auto=".1f",
-        color_discrete_sequence=[color]
-    )
-    fig.update_layout(xaxis_title="Porcentaje (%)", yaxis_title="", height=420)
-    st.plotly_chart(fig, use_container_width=True)
+def tarjeta_servicio(df, nombre, cfg, altura=260):
+    with st.container():
+        st.subheader(nombre)
+        st.metric("Satisfacción (8–10)", f"{satisfaccion_8a10(df, cfg['calif']):.1f}%")
+        df_plot = tabla_atributos(df, cfg["atributos"])
+        fig = px.bar(
+            df_plot,
+            x="Porcentaje",
+            y="Característica",
+            orientation="h",
+            text_auto=".1f",
+            color_discrete_sequence=[cfg["color"]]
+        )
+        fig.update_layout(height=altura, xaxis_title="%", yaxis_title="")
+        st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------
-# CONFIGURACIÓN – SERVICIOS PÚBLICOS BÁSICOS
+# CONFIGURACIÓN SERVICIOS BÁSICOS
 # ------------------------------------------------------
 
 SERVICIOS_BASICOS = {
@@ -143,8 +143,8 @@ SERVICIOS_BASICOS = {
             "P4_1_1": "Suministro constante",
             "P4_1_2": "Agua clara",
             "P4_1_3": "Agua bebible",
-            "P4_1_4": "Reparación rápida de fugas",
-            "P4_1_5": "Proviene de red pública"
+            "P4_1_4": "Reparación de fugas",
+            "P4_1_5": "Red pública"
         }
     },
     "Drenaje y alcantarillado": {
@@ -152,7 +152,7 @@ SERVICIOS_BASICOS = {
         "color": "#52B788",
         "atributos": {
             "P4_2_1": "Conexión adecuada",
-            "P4_2_2": "Mantenimiento frecuente",
+            "P4_2_2": "Mantenimiento",
             "P4_2_3": "Evita inundaciones",
             "P4_2_4": "Sin fugas"
         }
@@ -161,7 +161,7 @@ SERVICIOS_BASICOS = {
         "calif": "P4_3B",
         "color": "#FFB703",
         "atributos": {
-            "P4_3_1": "Iluminación adecuada",
+            "P4_3_1": "Iluminación",
             "P4_3_2": "Mantenimiento",
             "P4_3_3": "Atención a fallas"
         }
@@ -170,9 +170,9 @@ SERVICIOS_BASICOS = {
         "calif": "P4_5B",
         "color": "#2D6A4F",
         "atributos": {
-            "P4_5_1": "Servicio oportuno",
-            "P4_5_2": "Servicio gratuito",
-            "P4_5_3": "Separación de residuos"
+            "P4_5_1": "Oportuno",
+            "P4_5_2": "Gratuito",
+            "P4_5_3": "Separación"
         }
     },
     "Policía": {
@@ -187,7 +187,7 @@ SERVICIOS_BASICOS = {
         "calif": "P4_4B",
         "color": "#40916C",
         "atributos": {
-            "P4_4_1": "Accesibles en horario",
+            "P4_4_1": "Accesibles",
             "P4_4_2": "Cercanos",
             "P4_4_3": "Limpios",
             "P4_4_4": "Seguros"
@@ -198,8 +198,8 @@ SERVICIOS_BASICOS = {
         "color": "#495057",
         "atributos": {
             "P4_7_1": "Buen estado",
-            "P4_7_2": "Reparación de baches",
-            "P4_7_3": "Semáforos funcionales"
+            "P4_7_2": "Reparación",
+            "P4_7_3": "Semáforos"
         }
     },
     "Carreteras": {
@@ -208,7 +208,7 @@ SERVICIOS_BASICOS = {
         "atributos": {
             "P4_8_1": "Sin baches",
             "P4_8_2": "Seguras",
-            "P4_8_3": "Comunican al estado"
+            "P4_8_3": "Conectividad"
         }
     }
 }
@@ -225,13 +225,16 @@ with st.sidebar:
     )
 
     if categoria == "Servicios Públicos Básicos":
-        servicio = st.radio(
-            "Servicio:",
-            list(SERVICIOS_BASICOS.keys())
+        modo = st.radio(
+            "Modo de visualización:",
+            ["Vista tipo panel (todos)", "Vista individual"]
         )
 
+        if modo == "Vista individual":
+            servicio = st.radio("Servicio:", list(SERVICIOS_BASICOS.keys()))
+
 # ------------------------------------------------------
-# CONTENIDO
+# CONTENIDO PRINCIPAL
 # ------------------------------------------------------
 
 if categoria == "Pantalla principal":
@@ -257,18 +260,24 @@ if categoria == "Pantalla principal":
 
     with st.expander("📌 Nota metodológica"):
         st.write("""
-        Resultados calculados con el factor de expansión FAC_P18.
+        Indicadores calculados con FAC_P18.
         La pregunta de problemas permite hasta tres respuestas por persona.
         """)
 
 elif categoria == "Servicios Públicos Básicos":
-    cfg = SERVICIOS_BASICOS[servicio]
-    grafica_servicio_basico(
-        df,
-        servicio,
-        cfg["calif"],
-        cfg["atributos"],
-        cfg["color"]
-    )
 
-st.caption("Fuente: ENCIG 2023, INEGI.")
+    if modo == "Vista tipo panel (todos)":
+        st.markdown("## 🧩 Servicios Públicos Básicos")
+        cols = st.columns(2)
+        i = 0
+        for nombre, cfg in SERVICIOS_BASICOS.items():
+            with cols[i % 2]:
+                tarjeta_servicio(df, nombre, cfg, altura=260)
+            i += 1
+
+    else:
+        st.markdown(f"## {servicio}")
+        cfg = SERVICIOS_BASICOS[servicio]
+        tarjeta_servicio(df, servicio, cfg, altura=420)
+
+st.caption("Fuente: Encuesta Nacional de Calidad e Impacto Gubernamental (ENCIG) 2023, INEGI.")
