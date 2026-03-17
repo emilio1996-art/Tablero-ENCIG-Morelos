@@ -176,11 +176,11 @@ SERVICIOS_BASICOS = {
     },
     "Alumbrado público": {
         "calif": "P4_3B", "color": "#FFB703",
-        "atributos": {"P4_3_1": "Iluminación", "P4_3_2": "Mantenimiento", "P4_3_3": "Atención a fallas"}
+        "atributos": {"P4_3_1": "Iluminación adecuada", "P4_3_2": "Mantenimiento", "P4_3_3": "Atención inmediata de fallas"}
     },
     "Recolección de basura": {
         "calif": "P4_5B", "color": "#2D6A4F",
-        "atributos": {"P4_5_1": "Oportuno", "P4_5_2": "Gratuito"}
+        "atributos": {"P4_5_1": "Oportuno", "P4_5_2": "Gratuito", "P4_5_3": "Solicitan separación de residuos"}
     },
     "Policía": {
         "calif": "P4_6B", "color": "#003049",
@@ -188,7 +188,7 @@ SERVICIOS_BASICOS = {
     },
     "Parques y jardines": {
         "calif": "P4_4B", "color": "#40916C",
-        "atributos": {"P4_4_1": "Accesibles", "P4_4_3": "Limpios", "P4_4_4": "Seguros"}
+        "atributos": {"P4_4_1": "Horarios Accesibles", "P4_4_3": "Limpios", "P4_4_4": "Seguros"}
     }
 }
 
@@ -224,6 +224,30 @@ if categoria == "Pantalla principal":
     fig = px.bar(tabla, x="Porcentaje", y="Problema", orientation="h", text_auto=".1f",
                  color_discrete_sequence=["#C0392B"])
     st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---") # Línea divisoria visual
+    
+    # Contenedor expandible para no saturar la vista inicial
+    with st.expander("ℹ️ Notas Metodológicas y Glosario de Indicadores"):
+        st.markdown("""
+        ### **Precisiones Metodológicas**
+        Los datos presentados corresponden exclusivamente al estado de **Morelos** y han sido procesados utilizando el **Factor de Expansión (FAC_P18)** de la ENCIG 2023.
+        
+        * **Cálculo de Porcentajes:** Siguiendo la metodología de los boletines de prensa de INEGI, el denominador utilizado para todos los indicadores es la **población total de 18 años y más**, permitiendo una comparativa directa con las gráficas oficiales nacionales.
+        
+        ---
+        ### **Definición de Indicadores**
+        
+        * **Principal Problema:** Identifica el fenómeno que la población percibe como la mayor afectación en su entorno inmediato (Inseguridad, Corrupción, etc.).
+            
+        * **Corrupción Frecuente:** Porcentaje de adultos que consideran que los actos de corrupción ocurren de manera "Muy frecuente" o "Frecuente" en las instituciones de gobierno.
+            
+        * **Satisfacción con Servicios:** Mide el porcentaje de personas que califican con **8, 9 o 10** la calidad de los servicios básicos (promedio de los servicios analizados).
+            
+        * **Interacción con el Gobierno:** Mide la población que tuvo al menos un contacto con servidores públicos o plataformas digitales para realizar trámites, pagos o solicitudes.
+        
+        **Fuente:** Elaboración propia con datos de la Encuesta Nacional de Calidad e Impacto Gubernamental (ENCIG) 2023, INEGI.
+        """)
 
 elif categoria == "Servicios Públicos Básicos":
     if modo == "Vista tipo panel":
