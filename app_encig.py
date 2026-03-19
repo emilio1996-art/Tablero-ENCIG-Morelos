@@ -307,15 +307,29 @@ SERVICIOS_BASICOS = {
 
 SERVICIOS_DEMANDA = {
     "Energía Eléctrica": {
-        "calif": "P5_8A", # Variable de satisfacción (Muy satisfecho a Muy insatisfecho)
+        "calif": "P5_8A", 
         "color": "#F1C40F",
         "atributos": {
             "P5_8_1": "Continuo (sin apagones frecuentes)",
             "P5_8_2": "Estable (sin variaciones de voltaje)",
             "P5_8_3": "Reinstalación inmediata en casos de apagón"
         }
+    }, # <-- Aquí debe haber una coma, NO un cierre de llave extra
+    "Transporte Público Masivo": {
+        "calif": "P5_9A", 
+        "color": "#8E44AD", 
+        "atributos": {
+            "P5_9_1": "Ascenso en paradas oficiales",
+            "P5_9_2": "Horarios disponibles en estaciones",
+            "P5_9_3": "Poco tiempo entre unidades",
+            "P5_9_4": "Espacio confortable para viajar",
+            "P5_9_5": "Rutas suficientes",
+            "P5_9_6": "Unidades limpias y funcionales",
+            "P5_9_7": "Operadores respetuosos de señales viales",
+            "P5_9_8": "Operadores amables y respetuosos con usuarios"
+        }
     }
-}
+} # <-- Aquí se cierra el diccionario principal
 
 # ------------------------------------------------------
 # NAVEGACIÓN
@@ -427,15 +441,18 @@ elif categoria == "Experiencias en trámites y solicitudes":
 
 elif categoria == "Servicios Públicos Bajo Demanda":
     st.markdown("## 🚗 Servicios Públicos Bajo Demanda")
-    st.caption("Evaluación de servicios específicos y su infraestructura en la entidad.")
+    st.caption("Evaluación de atributos técnicos en servicios específicos (Morelos).")
     
-    # Creamos las columnas para organizar las tarjetas
-    cols = st.columns(2)
+    # Organizamos en 2 columnas para una visualización limpia
+    c1, c2 = st.columns(2)
     
-    # Renderizamos el servicio de Energía Eléctrica
-    # Usamos la misma lógica de tarjeta_servicio que ya aplica autorange='reversed'
-    for i, (nombre, cfg) in enumerate(SERVICIOS_DEMANDA.items()):
-        with cols[i % 2]:
-            tarjeta_servicio(df, nombre, cfg)
+    with c1:
+        # Asumiendo que definiste "Energía Eléctrica" en SERVICIOS_DEMANDA
+        if "Energía Eléctrica" in SERVICIOS_DEMANDA:
+            tarjeta_servicio(df, "Energía Eléctrica", SERVICIOS_DEMANDA["Energía Eléctrica"])
+            
+    with c2:
+        if "Transporte Público Masivo" in SERVICIOS_DEMANDA:
+            tarjeta_servicio(df, "Transporte Público Masivo", SERVICIOS_DEMANDA["Transporte Público Masivo"])
 
 st.caption("Fuente: ENCIG 2023, INEGI. Procesamiento con Factor de Expansión FAC_P18.")
