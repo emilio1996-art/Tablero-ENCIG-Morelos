@@ -127,29 +127,6 @@ def tabla_atributos(df, atributos):
             filas.append({"Característica": nombre, "Porcentaje": (total_si / total_pob * 100) if total_pob > 0 else 0})
     return pd.DataFrame(filas).sort_values("Porcentaje", ascending=True)
 
-def calcular_lugares_tramites_morelos_oficial(df_gen, df_tram):
-    # Universo: Personas con contacto (1=Sí, 9=No especificado/otros según lógica previa)
-    df_universo = df_gen[df_gen["P6_1"].isin([1, 9])].drop_duplicates(subset=["ID_VIV", "ID_PER"])
-    total_universo = df_universo["FAC_P18"].sum()
-    
-    if total_universo == 0: return pd.DataFrame()
-
-    mapa = {
-        "Instalaciones de gobierno": [1],
-        "Cajero automático o kiosco inteligente": [3, 6], 
-        "Internet": [4],
-        "Banco, supermercado, tiendas o farmacias": [2],
-        "Líneas de atención telefónica": [5]
-    }
-    
-    res = []
-    for nombre, codigos in mapa.items():
-        ids_medio = df_tram[df_tram["P7_3"].isin(codigos)][["ID_VIV", "ID_PER"]].drop_duplicates()
-        pob_medio = pd.merge(ids_medio, df_universo, on=["ID_VIV", "ID_PER"])["FAC_P18"].sum()
-        res.append({"Lugar": nombre, "Porcentaje": (pob_medio / total_universo * 100)})
-    
-    return pd.DataFrame(res).sort_values("Porcentaje", ascending=True)
-
 def calcular_percepcion_corrupcion(df):
     """
     Calcula percepción general sobre el total de la población de 18 años y más.
@@ -164,6 +141,34 @@ def calcular_percepcion_corrupcion(df):
         res.append({"Percepción": nombre, "Porcentaje": (pob_cat / total_pob * 100)})
     
     return pd.DataFrame(res)
+
+def calcular_gobierno_electronico_morelos(df):
+    """
+    Calcula el porcentaje de interacción con el gobierno por internet (P10_1_1 a P10_1_7).
+    Universo: Población total de 18 años y más en Morelos.
+    """
+    interacciones_map = {
+        "P10_1_1": "Consultar páginas del gobierno",
+        "P10_1_2": "Llenar y enviar en línea un formulario",
+        "P10_1_3": "Realizar pagos de trámites",
+        "P10_1_4": "Redes sociales para presentar quejas/denuncias",
+        "P10_1_5": "Realizar un trámite completo",
+        "P10_1_6": "Solicitar información o apoyo sobre trámites"
+    }
+    
+    total_pob = df["FAC_P18"].sum()
+    if total_pob == 0: return pd.DataFrame()
+
+    res = []
+    for col, nombre in interacciones_map.items():
+        if col in df.columns:
+            # Numerador: Personas que respondieron 1 (Sí)
+            pob_si = df[df[col] == 1]["FAC_P18"].sum()
+            porcentaje = (pob_si / total_pob * 100)
+            res.append({"Interacción": nombre, "Porcentaje": porcentaje})
+    
+    # Ordenamos de mayor a menor para facilitar la lectura
+    return pd.DataFrame(res).sort_values("Porcentaje", ascending=False)
 
 def calcular_corrupcion_sectores_morelos(df):
     """
@@ -265,6 +270,10 @@ if categoria == "Inicio":
 
     st.markdown("### Percepción de problemas en la entidad")
     fig = px.bar(tabla_p, x="Porcentaje", y="Problema", orientation="h", text_auto=".1f", color_discrete_sequence=["#C0392B"])
+    
+    # Añade este bloque de update_layout:
+    fig.update_layout(yaxis=dict(autorange="reversed")) # <--- ORDENA DE MAYOR A MENOR
+    
     st.plotly_chart(fig, use_container_width=True)
 
     # --- REINSERCIÓN DE NOTAS METODOLÓGICAS ---
@@ -293,15 +302,6 @@ elif categoria == "Servicios Públicos Básicos":
         with cols[i % 2]:
             tarjeta_servicio(df, nombre, cfg)
 
-elif categoria == "Experiencias en trámites y solicitudes":
-    st.markdown("## 📑 Experiencias en trámites y solicitudes")
-    df_lugares = calcular_lugares_tramites_morelos_oficial(df, df_t)
-    if not df_lugares.empty:
-        fig = px.bar(df_lugares, x="Porcentaje", y="Lugar", orientation="h", text_auto=".1f", color_discrete_sequence=["#8E44AD"])
-        fig.update_layout(xaxis=dict(range=[0, 70]), margin=dict(l=300, r=50, t=50, b=50), height=500)
-        fig.update_traces(textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
-
 elif categoria == "Experiencias de corrupción":
     st.markdown("## 🛡️ Experiencias de corrupción")
     # Gráfica 1: Percepción General
@@ -320,10 +320,50 @@ elif categoria == "Experiencias de corrupción":
     df_sect = calcular_corrupcion_sectores_morelos(df)
     if not df_sect.empty:
         fig2 = px.bar(df_sect, x="Porcentaje", y="Sector", orientation="h", text_auto=".1f", color_discrete_sequence=["#fca311"])
-        fig2.update_layout(xaxis=dict(range=[0, 100]), margin=dict(l=300), height=800)
+        fig2.update_layout(xaxis=dict(range=[0, 100]), yaxis=dict(autorange="reversed"), margin=dict(l=300), height=800)
         st.plotly_chart(fig2, use_container_width=True)
         
     else:
         st.error("No se encontraron registros válidos para generar la gráfica.")
+
+elif categoria == "Experiencias en trámites y solicitudes":
+    st.markdown("## 📑 Experiencias en trámites y solicitudes")
+    
+    # --- BLOQUE: Gobierno Electrónico ---
+    st.markdown("### Interacción con el gobierno a través de internet")
+    st.caption("Porcentaje de la población de 18 años y más que utilizó medios electrónicos por tipo de interacción.")
+    
+    df_gob_e = calcular_gobierno_electronico_morelos(df)
+    
+    if not df_gob_e.empty:
+        # Gráfica de barras horizontales para nombres largos
+        fig = px.bar(
+            df_gob_e, 
+            x="Porcentaje", 
+            y="Interacción", 
+            orientation="h",
+            text_auto=".1f",
+            color_discrete_sequence=["#d81159"] # Manteniendo el color de Morelos
+        )
+        
+        fig.update_layout(
+            xaxis_title="Porcentaje (%)",
+            yaxis_title="",
+            yaxis=dict(autorange="reversed"),  # <--- ESTA LÍNEA ORDENA DE MAYOR A MENOR
+            xaxis=dict(range=[0, 35]), # Ajustado al máximo esperado ~25.4%
+            margin=dict(l=300, r=50, t=30, b=50),
+            height=500
+        )
+        
+        fig.update_traces(textposition='outside')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Nota técnica breve
+        st.info("""
+            **Nota:** Las categorías incluyen desde la simple consulta de información 
+            hasta la realización de trámites completos y pagos por internet.
+        """)
+    else:
+        st.error("No se encontraron registros para la sección de Gobierno Electrónico (P10_1).")
 
 st.caption("Fuente: ENCIG 2023, INEGI. Procesamiento con Factor de Expansión FAC_P18.")
