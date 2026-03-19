@@ -37,6 +37,8 @@ def load_data():
     df_principal = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name=0)
     df_sec6 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_03_sec_6")
     df_sec7 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
+    # Carga específica de la hoja de trámites y pagos
+    df_t = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
     
     # 1. Personas únicas (1 fila = 1 persona)
     df_sec6_u = df_sec6[["ID_VIV", "ID_PER", "P6_1"]].drop_duplicates(subset=["ID_VIV", "ID_PER"])
@@ -206,6 +208,53 @@ def calcular_corrupcion_sectores_morelos(df):
     
     return pd.DataFrame(res).sort_values("Porcentaje", ascending=False)
 
+def tabla_atributos(df, atributos):
+    filas = []
+    
+    for col, nombre in atributos.items():
+        if col in df.columns:
+            # 1. Convertimos a numérico tratando 'b' como NaN
+            v = pd.to_numeric(df[col], errors="coerce")
+            
+            # 2. Definimos el universo VÁLIDO (Solo quienes respondieron 1:Sí o 2:No)
+            # El código 9 (No sabe) y NaN (Blancos) quedan fuera del denominador
+            df_valido = df[v.isin([1, 2])]
+            denominador_valido = df_valido["FAC_P18"].sum()
+            
+            if denominador_valido > 0:
+                # 3. Numerador: Solo los que dijeron 'Sí' (1)
+                total_si = df_valido[v == 1]["FAC_P18"].sum()
+                porcentaje = (total_si / denominador_valido * 100)
+                
+                filas.append({
+                    "Característica": nombre, 
+                    "Porcentaje": porcentaje
+                })
+            
+    # Ordenamos de mayor a menor para que la gráfica sea clara
+    return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
+
+def calcular_satisfaccion_neta(df, columna):
+    """
+    Calcula satisfacción sumando niveles 1 (Muy satisfecho) y 2 (Satisfecho).
+    Denominador: Respuestas válidas del 1 al 6 (Excluye 9 y blancos).
+    """
+    if columna not in df.columns: return 0.0
+    
+    # Convertimos a numérico tratando 'b' como NaN
+    v = pd.to_numeric(df[columna], errors="coerce")
+    
+    # Denominador: Universo de personas con opinión (1 a 6)
+    df_valido = df[v.isin([1, 2, 3, 4, 5, 6])]
+    denominador = df_valido["FAC_P18"].sum()
+    
+    if denominador > 0:
+        # NUMERADOR CRÍTICO: Solo niveles 1 y 2 para coincidir con el 81% oficial
+        satisfechos = df_valido[v.isin([1, 2])]["FAC_P18"].sum()
+        return (satisfechos / denominador * 100)
+    
+    return 0.0
+
 # ------------------------------------------------------
 # VISUALIZACIÓN REUTILIZABLE
 # ------------------------------------------------------
@@ -213,11 +262,27 @@ def calcular_corrupcion_sectores_morelos(df):
 def tarjeta_servicio(df, nombre, cfg, altura=350):
     with st.container():
         st.subheader(nombre)
-        sat_val = satisfaccion_8a10(df, cfg['calif'])
-        st.metric("Satisfacción (8–10)", f"{sat_val:.1f}%")
+        
+        # Métrica de satisfacción basada en la escala de 6 niveles
+        sat_val = calcular_satisfaccion_neta(df, cfg['calif'])
+        st.metric("Grado de Satisfacción General", f"{sat_val:.1f}%")
+        
+        # Gráfica de Atributos (Sí/No)
         df_plot = tabla_atributos(df, cfg["atributos"])
-        fig = px.bar(df_plot, x="Porcentaje", y="Característica", orientation="h", text_auto=".1f", color_discrete_sequence=[cfg["color"]])
-        fig.update_layout(height=altura, xaxis_title="%", yaxis_title="", margin=dict(l=220, r=20, t=20, b=20))
+        
+        fig = px.bar(
+            df_plot, x="Porcentaje", y="Característica", 
+            orientation="h", text_auto=".1f", 
+            color_discrete_sequence=[cfg["color"]]
+        )
+        
+        fig.update_layout(
+            height=altura, 
+            xaxis_title="Cumplimiento del atributo (%)", 
+            yaxis_title="",
+            yaxis=dict(autorange="reversed"),
+            margin=dict(l=250, r=20, t=20, b=20)
+        )
         st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------
@@ -240,6 +305,18 @@ SERVICIOS_BASICOS = {
     "Parques y jardines": {"calif": "P4_4B", "color": "#40916C", "atributos": {"P4_4_1": "Horarios Accesibles", "P4_4_3": "Limpios", "P4_4_4": "Seguros"}}
 }
 
+SERVICIOS_DEMANDA = {
+    "Energía Eléctrica": {
+        "calif": "P5_8A", # Variable de satisfacción (Muy satisfecho a Muy insatisfecho)
+        "color": "#F1C40F",
+        "atributos": {
+            "P5_8_1": "Continuo (sin apagones frecuentes)",
+            "P5_8_2": "Estable (sin variaciones de voltaje)",
+            "P5_8_3": "Reinstalación inmediata en casos de apagón"
+        }
+    }
+}
+
 # ------------------------------------------------------
 # NAVEGACIÓN
 # ------------------------------------------------------
@@ -249,8 +326,9 @@ with st.sidebar:
     categoria = st.selectbox("Sección:", [
         "Inicio", 
         "Servicios Públicos Básicos", 
+        "Servicios Públicos Bajo Demanda",  # <-- Nueva sección añadida
         "Experiencias en trámites y solicitudes",
-        "Experiencias de corrupción"  # <-- Nueva opción agregada
+        "Experiencias de corrupción"
     ])
 
 if categoria == "Inicio":
@@ -328,42 +406,36 @@ elif categoria == "Experiencias de corrupción":
 
 elif categoria == "Experiencias en trámites y solicitudes":
     st.markdown("## 📑 Experiencias en trámites y solicitudes")
-    
-    # --- BLOQUE: Gobierno Electrónico ---
-    st.markdown("### Interacción con el gobierno a través de internet")
-    st.caption("Porcentaje de la población de 18 años y más que utilizó medios electrónicos por tipo de interacción.")
-    
+
+    # Gráfica de barras
+    st.markdown("### Detalle por tipo de interacción")
     df_gob_e = calcular_gobierno_electronico_morelos(df)
     
     if not df_gob_e.empty:
-        # Gráfica de barras horizontales para nombres largos
         fig = px.bar(
-            df_gob_e, 
-            x="Porcentaje", 
-            y="Interacción", 
-            orientation="h",
-            text_auto=".1f",
-            color_discrete_sequence=["#d81159"] # Manteniendo el color de Morelos
+            df_gob_e, x="Porcentaje", y="Interacción", 
+            orientation="h", text_auto=".1f",
+            color_discrete_sequence=["#003566"]
         )
-        
         fig.update_layout(
-            xaxis_title="Porcentaje (%)",
-            yaxis_title="",
-            yaxis=dict(autorange="reversed"),  # <--- ESTA LÍNEA ORDENA DE MAYOR A MENOR
-            xaxis=dict(range=[0, 35]), # Ajustado al máximo esperado ~25.4%
-            margin=dict(l=300, r=50, t=30, b=50),
+            yaxis=dict(autorange="reversed"), # Mayor a menor
+            xaxis=dict(range=[0, 35]),
+            margin=dict(l=350, r=50, t=30, b=50),
             height=500
         )
-        
-        fig.update_traces(textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Nota técnica breve
-        st.info("""
-            **Nota:** Las categorías incluyen desde la simple consulta de información 
-            hasta la realización de trámites completos y pagos por internet.
-        """)
-    else:
-        st.error("No se encontraron registros para la sección de Gobierno Electrónico (P10_1).")
+
+elif categoria == "Servicios Públicos Bajo Demanda":
+    st.markdown("## 🚗 Servicios Públicos Bajo Demanda")
+    st.caption("Evaluación de servicios específicos y su infraestructura en la entidad.")
+    
+    # Creamos las columnas para organizar las tarjetas
+    cols = st.columns(2)
+    
+    # Renderizamos el servicio de Energía Eléctrica
+    # Usamos la misma lógica de tarjeta_servicio que ya aplica autorange='reversed'
+    for i, (nombre, cfg) in enumerate(SERVICIOS_DEMANDA.items()):
+        with cols[i % 2]:
+            tarjeta_servicio(df, nombre, cfg)
 
 st.caption("Fuente: ENCIG 2023, INEGI. Procesamiento con Factor de Expansión FAC_P18.")
