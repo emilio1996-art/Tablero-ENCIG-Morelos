@@ -1,8 +1,3 @@
-# ======================================================
-# TABLERO ENCIG 2023 – ESTADO DE MORELOS (OPTIMIZADO)
-# Alineado a Metodología INEGI - Vista Panel Única
-# ======================================================
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -37,14 +32,13 @@ def load_data():
     df_principal = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name=0)
     df_sec6 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_03_sec_6")
     df_sec7 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
-    # Carga específica de la hoja de trámites y pagos
     df_t = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
     
-    # 1. Personas únicas (1 fila = 1 persona)
+    # 1. Personas únicas
     df_sec6_u = df_sec6[["ID_VIV", "ID_PER", "P6_1"]].drop_duplicates(subset=["ID_VIV", "ID_PER"])
     df_gen = pd.merge(df_principal, df_sec6_u, on=["ID_VIV", "ID_PER"], how="left")
     
-    # 2. Registros de trámites (múltiples filas por persona)
+    # 2. Registros de trámites
     df_tramites = pd.merge(
         df_gen[["ID_VIV", "ID_PER", "FAC_P18", "P6_1"]], 
         df_sec7[["ID_VIV", "ID_PER", "P7_3"]], 
@@ -52,13 +46,22 @@ def load_data():
         how="inner"
     )
     
-    # Limpieza numérica centralizada
+    # --- LIMPIEZA NUMÉRICA CENTRALIZADA (Indentación Crítica) ---
     datasets = [df_gen, df_tramites]
     for d in datasets:
+        # Limpieza del Factor de Expansión
         if "FAC_P18" in d.columns:
             d["FAC_P18"] = pd.to_numeric(d["FAC_P18"], errors="coerce").fillna(0)
+        
+        # Limpieza de columnas específicas de trámites y encuestas
         for c in ["P6_1", "P7_3"]:
             if c in d.columns:
+                d[c] = pd.to_numeric(d[c], errors="coerce")
+        
+        # NUEVA SECCIÓN: Limpieza de columnas del IMSS y Salud
+        # Solo se aplica si las columnas existen en el dataset (df_gen)
+        for c in d.columns:
+            if c.startswith(("P5_4_", "P5_5_", "P5_6_")) or c in ["P5_1_03", "P5_1_04", "P5_1_05", "P5_4A", "P5_5A", "P5_6A", "P5_8A","P5_9A"]:
                 d[c] = pd.to_numeric(d[c], errors="coerce")
             
     return {"general": df_gen, "tramites": df_tramites}
@@ -119,15 +122,28 @@ def interaccion_gob(df):
     df_d = df[df[cols].eq(1).any(axis=1)]
     return (df_d["FAC_P18"].sum() / fac_total(df) * 100) if fac_total(df) > 0 else 0
 
-def tabla_atributos(df, atributos):
+def tabla_atributos_salud_total(df, atributos, col_filtro_usuario):
     filas = []
-    total_pob = df["FAC_P18"].sum()
+    
+    # Universo: Usuarios que dijeron SÍ en la columna de filtro (P5_1_03 o P5_1_04)
+    df_usuarios = df[df[col_filtro_usuario] == 1].copy()
+    
+    if df_usuarios.empty:
+        return pd.DataFrame(columns=["Característica", "Porcentaje"])
+
+    total_usuarios = df_usuarios["FAC_P18"].sum()
+
     for col, nombre in atributos.items():
-        if col in df.columns:
-            v = pd.to_numeric(df[col], errors="coerce")
-            total_si = df[v == 1]["FAC_P18"].sum()
-            filas.append({"Característica": nombre, "Porcentaje": (total_si / total_pob * 100) if total_pob > 0 else 0})
-    return pd.DataFrame(filas).sort_values("Porcentaje", ascending=True)
+        if col in df_usuarios.columns:
+            # Numerador: Solo los SÍ (1)
+            # Denominador: Total de usuarios (incluye 1, 2, 9 y blancos)
+            pob_si = df_usuarios[df_usuarios[col] == 1]["FAC_P18"].sum()
+            
+            if total_usuarios > 0:
+                porcentaje = (pob_si / total_usuarios * 100)
+                filas.append({"Característica": nombre, "Porcentaje": porcentaje})
+    
+    return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
 
 def calcular_percepcion_corrupcion(df):
     """
@@ -210,28 +226,25 @@ def calcular_corrupcion_sectores_morelos(df):
 
 def tabla_atributos(df, atributos):
     filas = []
-    
     for col, nombre in atributos.items():
         if col in df.columns:
-            # 1. Convertimos a numérico tratando 'b' como NaN
-            v = pd.to_numeric(df[col], errors="coerce")
+            # Convertimos a número (las 'b' se vuelven NaN)
+            v = pd.to_numeric(df[col], errors='coerce')
             
-            # 2. Definimos el universo VÁLIDO (Solo quienes respondieron 1:Sí o 2:No)
-            # El código 9 (No sabe) y NaN (Blancos) quedan fuera del denominador
+            # UNIVERSO VÁLIDO: Solo personas que vivieron la experiencia (1=Sí, 2=No)
+            # Esto excluye automáticamente a quienes no usan el servicio (Blancos)
+            # y a quienes no quisieron/supieron responder (Código 9).
             df_valido = df[v.isin([1, 2])]
-            denominador_valido = df_valido["FAC_P18"].sum()
+            denominador = df_valido["FAC_P18"].sum()
             
-            if denominador_valido > 0:
-                # 3. Numerador: Solo los que dijeron 'Sí' (1)
-                total_si = df_valido[v == 1]["FAC_P18"].sum()
-                porcentaje = (total_si / denominador_valido * 100)
-                
-                filas.append({
-                    "Característica": nombre, 
-                    "Porcentaje": porcentaje
-                })
-            
-    # Ordenamos de mayor a menor para que la gráfica sea clara
+            if denominador > 0:
+                pob_si = df_valido[v == 1]["FAC_P18"].sum()
+                porcentaje = (pob_si / denominador * 100)
+                filas.append({"Característica": nombre, "Porcentaje": porcentaje})
+    
+    if not filas:
+        return pd.DataFrame(columns=["Característica", "Porcentaje"])
+        
     return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
 
 def calcular_satisfaccion_neta(df, columna):
@@ -255,33 +268,58 @@ def calcular_satisfaccion_neta(df, columna):
     
     return 0.0
 
+def tabla_atributos_imss_total(df, atributos):
+    filas = []
+    
+    # PASO 1: Universo Total de Usuarios (Solo los que dijeron SÍ en P5_1_03)
+    df_usuarios = df[df["P5_1_03"] == 1].copy()
+    
+    if df_usuarios.empty:
+        return pd.DataFrame(columns=["Característica", "Porcentaje"])
+
+    total_usuarios_imss = df_usuarios["FAC_P18"].sum()
+
+    for col, nombre in atributos.items():
+        if col in df_usuarios.columns:
+            # Numerador: Solo los que respondieron 1 (SÍ)
+            # El denominador es el TOTAL de usuarios (incluye 1, 2, 9 y blancos)
+            pob_si = df_usuarios[df_usuarios[col] == 1]["FAC_P18"].sum()
+            
+            if total_usuarios_imss > 0:
+                porcentaje = (pob_si / total_usuarios_imss * 100)
+                filas.append({"Característica": nombre, "Porcentaje": porcentaje})
+    
+    if not filas:
+        return pd.DataFrame(columns=["Característica", "Porcentaje"])
+        
+    return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
+    
 # ------------------------------------------------------
 # VISUALIZACIÓN REUTILIZABLE
 # ------------------------------------------------------
 
-def tarjeta_servicio(df, nombre, cfg, altura=350):
+def tarjeta_servicio(df, nombre, cfg, altura=350, col_filtro=None):
     with st.container():
         st.subheader(nombre)
         
-        # Métrica de satisfacción basada en la escala de 6 niveles
-        sat_val = calcular_satisfaccion_neta(df, cfg['calif'])
-        st.metric("Grado de Satisfacción General", f"{sat_val:.1f}%")
+        # Filtro de usuario real en Morelos
+        df_final = df[df[col_filtro] == 1].copy() if col_filtro else df.copy()
         
-        # Gráfica de Atributos (Sí/No)
-        df_plot = tabla_atributos(df, cfg["atributos"])
+        # Métrica de Satisfacción (Niveles 1 y 2)
+        sat_val = calcular_satisfaccion_neta(df_final, cfg['calif'])
+        st.metric("Satisfacción General (Morelos)", f"{sat_val:.1f}%")
         
-        fig = px.bar(
-            df_plot, x="Porcentaje", y="Característica", 
-            orientation="h", text_auto=".1f", 
-            color_discrete_sequence=[cfg["color"]]
-        )
+        # Atributos
+        df_plot = tabla_atributos(df_final, cfg["atributos"])
+        
+        fig = px.bar(df_plot, x="Porcentaje", y="Característica", 
+                     orientation="h", text_auto=".1f", 
+                     color_discrete_sequence=[cfg["color"]])
         
         fig.update_layout(
-            height=altura, 
-            xaxis_title="Cumplimiento del atributo (%)", 
-            yaxis_title="",
+            height=altura, xaxis_title="%", yaxis_title="",
             yaxis=dict(autorange="reversed"),
-            margin=dict(l=250, r=20, t=20, b=20)
+            margin=dict(l=280, r=20, t=20, b=20) # Aumenté margen izquierdo por etiquetas largas
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -328,8 +366,62 @@ SERVICIOS_DEMANDA = {
             "P5_9_7": "Operadores respetuosos de señales viales",
             "P5_9_8": "Operadores amables y respetuosos con usuarios"
         }
+    },
+
+"Servicios de Salud en el IMSS": {
+        "calif": "P5_4A",  # Variable de satisfacción (1 a 6)
+        "color": "#023047", # Verde IMSS
+        "atributos": {
+            "P5_4_01": "Atención inmediata",
+            "P5_4_02": "Trato respetuoso del personal",
+            "P5_4_03": "Información clara sobre salud",
+            "P5_4_04": "Instalaciones adecuadas con equipo necesario",
+            "P5_4_05": "Instalaciones limpias y ordenadas",
+            "P5_4_06": "Disposición de medicamentos",
+            "P5_4_07": "Atención sin requerir materiales o medicamento",
+            "P5_4_08": "Médicos suficientes",
+            "P5_4_09": "Médicos capacitados",
+            "P5_4_10": "Clinicas saturadas",
+            "P5_4_11": "Deficiente, se tiene que pagar atención privada"
+        }
+    },
+
+"Servicios de Salud en el ISSSTE": {
+    "calif": "P5_5A",  # Satisfacción general ISSSTE
+    "color": "#641E16", # Color tinto institucional
+    "atributos": {
+            "P5_5_01": "Atención inmediata",
+            "P5_5_02": "Trato respetuoso del personal",
+            "P5_5_03": "Información clara sobre salud",
+            "P5_5_04": "Instalaciones adecuadas con equipo necesario",
+            "P5_5_05": "Instalaciones limpias y ordenadas",
+            "P5_5_06": "Disposición de medicamentos",
+            "P5_5_07": "Atención sin requerir materiales o medicamento",
+            "P5_5_08": "Médicos suficientes",
+            "P5_5_09": "Médicos capacitados",
+            "P5_5_10": "Clinicas saturadas",
+            "P5_5_11": "Deficiente, se tiene que pagar atención privada"
     }
+}, 
+"Servicios de Salud en el INSABI": {
+    "calif": "P5_6A",  # Satisfacción general INSABI
+    "color": "#D4AC0D", # Color dorado/ocre
+    "atributos": {
+            "P5_6_01": "Atención inmediata",
+            "P5_6_02": "Trato respetuoso del personal",
+            "P5_6_03": "Información clara sobre salud",
+            "P5_6_04": "Instalaciones adecuadas con equipo necesario",
+            "P5_6_05": "Instalaciones limpias y ordenadas",
+            "P5_6_06": "Disposición de medicamentos",
+            "P5_6_07": "Atención sin requerir materiales o medicamento",
+            "P5_6_08": "Médicos suficientes",
+            "P5_6_09": "Médicos capacitados",
+            "P5_6_10": "Clinicas saturadas",
+            "P5_6_11": "Deficiente, se tiene que pagar atención privada"
+    }
+}
 } # <-- Aquí se cierra el diccionario principal
+
 
 # ------------------------------------------------------
 # NAVEGACIÓN
@@ -440,19 +532,75 @@ elif categoria == "Experiencias en trámites y solicitudes":
         st.plotly_chart(fig, use_container_width=True)
 
 elif categoria == "Servicios Públicos Bajo Demanda":
-    st.markdown("## 🚗 Servicios Públicos Bajo Demanda")
-    st.caption("Evaluación de atributos técnicos en servicios específicos (Morelos).")
+    st.markdown("## 🏥 Comparativa de Servicios de Salud")
     
-    # Organizamos en 2 columnas para una visualización limpia
-    c1, c2 = st.columns(2)
+    # 1. Interruptores de visualización (Multiselect)
+    opciones_disponibles = ["IMSS", "ISSSTE", "INSABI"]
+    seleccionados = st.multiselect(
+        "Activar/Desactivar visualización de instituciones:",
+        options=opciones_disponibles,
+        default=opciones_disponibles
+    )
+
+    # 2. Configuración de mapeo
+    config_salud = {
+        "IMSS": {"cfg": SERVICIOS_DEMANDA["Servicios de Salud en el IMSS"], "filtro": "P5_1_03"},
+        "ISSSTE": {"cfg": SERVICIOS_DEMANDA["Servicios de Salud en el ISSSTE"], "filtro": "P5_1_04"},
+        "INSABI": {"cfg": SERVICIOS_DEMANDA["Servicios de Salud en el INSABI"], "filtro": "P5_1_05"}
+    }
+
+    # 3. Procesamiento de datos unificados
+    df_comparativo = []
     
-    with c1:
-        # Asumiendo que definiste "Energía Eléctrica" en SERVICIOS_DEMANDA
-        if "Energía Eléctrica" in SERVICIOS_DEMANDA:
-            tarjeta_servicio(df, "Energía Eléctrica", SERVICIOS_DEMANDA["Energía Eléctrica"])
-            
-    with c2:
-        if "Transporte Público Masivo" in SERVICIOS_DEMANDA:
-            tarjeta_servicio(df, "Transporte Público Masivo", SERVICIOS_DEMANDA["Transporte Público Masivo"])
+    for nombre in seleccionados:
+        info = config_salud[nombre]
+        # Usamos la función de salud total que considera 1, 2, 9 y b
+        df_inst = tabla_atributos_salud_total(df, info["cfg"]["atributos"], info["filtro"])
+        df_inst["Institución"] = nombre
+        df_comparativo.append(df_inst)
+
+    if df_comparativo:
+        df_final_salud = pd.concat(df_comparativo)
+
+        # 4. Gráfica de Columnas Agrupadas
+        fig_salud = px.bar(
+            df_final_salud, 
+            x="Característica", 
+            y="Porcentaje", 
+            color="Institución",
+            barmode="group",
+            text_auto=".1f",
+            color_discrete_map={
+                "IMSS": "#8d99ae", 
+                "ISSSTE": "#edf2f4", 
+                "INSABI": "#ef233c"
+            }
+        )
+
+        fig_salud.update_layout(
+            height=550,
+            xaxis_tickangle=-45,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis=dict(range=[0, 100], title="Cumplimiento del atributo (%)"),
+            xaxis_title="",
+            margin=dict(t=50, b=150) # Espacio para las etiquetas inclinadas
+        )
+        
+        st.plotly_chart(fig_salud, use_container_width=True)
+        
+    else:
+        st.info("Seleccione al menos una institución arriba para generar la comparativa.")
+
+    # --- ENERGÍA Y TRANSPORTE (Se mantienen en la parte inferior o superior) ---
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        tarjeta_servicio(df, "Energía Eléctrica", SERVICIOS_DEMANDA["Energía Eléctrica"])
+    with col2:
+        tarjeta_servicio(df, "Transporte Público Masivo", SERVICIOS_DEMANDA["Transporte Público Masivo"])
+
+    # Mantener la nota metodológica al final
+    st.warning("📊 **Nota sobre el cálculo de salud:**")
+    st.caption("Los datos de salud incluyen respuestas 'No sabe' y 'No especificado' en el denominador para coincidir con INEGI.")
 
 st.caption("Fuente: ENCIG 2023, INEGI. Procesamiento con Factor de Expansión FAC_P18.")
