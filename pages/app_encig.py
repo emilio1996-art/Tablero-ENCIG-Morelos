@@ -104,11 +104,14 @@ st.divider()
 
 @st.cache_data
 def load_data():
-    # --- CAMBIO AQUÍ: Agregamos "data/" a cada ruta ---
-    df_principal = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name=0)
-    df_sec6 = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_03_sec_6")
-    df_sec7 = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
-    df_t = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
+    # Definimos la ruta una sola vez para evitar errores de dedo
+    ruta = "data/Consolidado_Morelos_Bases_Final.xlsx"
+    
+    # Agregamos engine='openpyxl' a todas las lecturas
+    df_principal = pd.read_excel(ruta, sheet_name=0, engine='openpyxl')
+    df_sec6 = pd.read_excel(ruta, sheet_name="encig2023_03_sec_6", engine='openpyxl')
+    df_sec7 = pd.read_excel(ruta, sheet_name="encig2023_04_sec_7", engine='openpyxl')
+    df_t = pd.read_excel(ruta, sheet_name="encig2023_04_sec_7", engine='openpyxl')
     
     # 1. Personas únicas
     df_sec6_u = df_sec6[["ID_VIV", "ID_PER", "P6_1"]].drop_duplicates(subset=["ID_VIV", "ID_PER"])
