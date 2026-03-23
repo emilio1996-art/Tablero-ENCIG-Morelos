@@ -1,3 +1,8 @@
+# ======================================================
+# TABLERO ENCIG 2023 – ESTADO DE MORELOS (OPTIMIZADO)
+# Alineado a Metodología INEGI - Vista Panel Única
+# ======================================================
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -11,16 +16,87 @@ st.set_page_config(
     layout="wide"
 )
 
+# ------------------------------------------------------
+# ESTILOS CSS PERSONALIZADOS (Añade o actualiza este markdown)
+# ------------------------------------------------------
 st.markdown("""
 <style>
-.plot-container { 
-    padding: 15px; border-radius: 10px; 
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    border: 1px solid rgba(128,128,128,0.2);
-    margin-bottom: 20px;
-}
+    /* Estilo para las tarjetas de gráfico (ya lo tenías) */
+    .plot-container { 
+        padding: 15px; border-radius: 10px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: 1px solid rgba(128,128,128,0.2);
+        margin-bottom: 20px;
+    }
+
+    /* --- NUEVOS ESTILOS PARA EL ENCABEZADO INSTITUCIONAL --- */
+    .main-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start; /* Alinea logo y texto a la izquierda */
+        margin-bottom: 25px;
+        padding: 10px;
+        border-bottom: 2px solid #ddd; /* Línea separadora sutil */
+    }
+    .header-logo {
+        width: 120px; /* Tamaño del logotipo */
+        margin-right: 25px; /* Espacio entre logo y texto */
+    }
+    .header-text-container {
+        display: flex;
+        flex-direction: column; /* Apila INEGI y Morelos verticalmente */
+    }
+    .header-title {
+        font-size: 40px !important;
+        font-weight: bold !important;
+        text-transform: uppercase !important; /* Todo a mayúsculas */
+        margin: 0 !important;
+        padding: 0 !important;
+        letter-spacing: 2px; /* Espaciado para formalidad */
+        color: #1a1a1a;
+    }
+    .header-subtitle {
+        font-size: 20px !important;
+        font-weight: normal !important;
+        color: #555; /* Color gris para el subtítulo */
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ------------------------------------------------------
+# ENCABEZADO INSTITUCIONAL FIJO (Logo + INEGI + Morelos)
+# ------------------------------------------------------
+
+# Creamos dos columnas: una estrecha para el logo, una ancha para el texto
+# Ajusta el valor [1, 5] si necesitas más o menos espacio entre ellos.
+col_logo, col_texto = st.columns([1, 5])
+
+with col_logo:
+    # URL directa del logotipo oficial. Al usar st.image, sí cargará.
+    logo_inegi_url = "https://www.inegi.org.mx/app/imagenes/inegi.jpg"
+    
+    # Usamos st.image nativo para asegurar la carga
+    st.image(logo_inegi_url, width=120)
+
+with col_texto:
+    # Usamos HTML/CSS dentro de st.markdown para controlar los tamaños y mayúsculas
+    # asegurando que INEGI sea grande y Morelos más pequeño.
+    st.markdown("""
+        <div style="display: flex; flex-direction: column; justify-content: center; height: 100%;">
+            <h1 style="margin: 0; padding: 0; text-transform: uppercase; letter-spacing: 2px; line-height: 1;">
+                INEGI
+            </h1>
+            <h3 style="margin: 0; padding: 0; font-weight: normal; color: #555; line-height: 1.2;">
+                Morelos
+            </h3>
+        </div>
+    """, unsafe_allow_html=True)
+
+# Una línea divisoria sutil para separar el encabezado del contenido
+st.divider()
 
 # ------------------------------------------------------
 # CARGA Y LIMPIEZA DE DATOS
@@ -28,11 +104,11 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
-    # Carga de hojas
-    df_principal = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name=0)
-    df_sec6 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_03_sec_6")
-    df_sec7 = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
-    df_t = pd.read_excel("Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
+    # --- CAMBIO AQUÍ: Agregamos "data/" a cada ruta ---
+    df_principal = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name=0)
+    df_sec6 = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_03_sec_6")
+    df_sec7 = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
+    df_t = pd.read_excel("data/Consolidado_Morelos_Bases_Final.xlsx", sheet_name="encig2023_04_sec_7")
     
     # 1. Personas únicas
     df_sec6_u = df_sec6[["ID_VIV", "ID_PER", "P6_1"]].drop_duplicates(subset=["ID_VIV", "ID_PER"])
@@ -231,13 +307,13 @@ def tabla_atributos(df, atributos):
             # Convertimos a número (las 'b' se vuelven NaN)
             v = pd.to_numeric(df[col], errors='coerce')
             
-            # UNIVERSO VÁLIDO: Solo personas que vivieron la experiencia (1=Sí, 2=No)
-            # Esto excluye automáticamente a quienes no usan el servicio (Blancos)
-            # y a quienes no quisieron/supieron responder (Código 9).
+            # FILTRO OFICIAL: Solo personas con respuesta válida (1 o 2)
+            # Esto excluye automáticamente códigos 9 (No sabe) y blancos (No aplica)
             df_valido = df[v.isin([1, 2])]
             denominador = df_valido["FAC_P18"].sum()
             
             if denominador > 0:
+                # Numerador: Solo los que dijeron SÍ (1)
                 pob_si = df_valido[v == 1]["FAC_P18"].sum()
                 porcentaje = (pob_si / denominador * 100)
                 filas.append({"Característica": nombre, "Porcentaje": porcentaje})
@@ -245,54 +321,25 @@ def tabla_atributos(df, atributos):
     if not filas:
         return pd.DataFrame(columns=["Característica", "Porcentaje"])
         
+    # Ordenamos de mayor a menor para la gráfica de barras
     return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
 
 def calcular_satisfaccion_neta(df, columna):
-    """
-    Calcula satisfacción sumando niveles 1 (Muy satisfecho) y 2 (Satisfecho).
-    Denominador: Respuestas válidas del 1 al 6 (Excluye 9 y blancos).
-    """
     if columna not in df.columns: return 0.0
     
-    # Convertimos a numérico tratando 'b' como NaN
     v = pd.to_numeric(df[columna], errors="coerce")
     
-    # Denominador: Universo de personas con opinión (1 a 6)
+    # El denominador oficial son las calificaciones del 1 al 6
+    # (Muy satisfecho, Satisfecho, ..., Muy insatisfecho)
     df_valido = df[v.isin([1, 2, 3, 4, 5, 6])]
     denominador = df_valido["FAC_P18"].sum()
     
     if denominador > 0:
-        # NUMERADOR CRÍTICO: Solo niveles 1 y 2 para coincidir con el 81% oficial
+        # Sumamos 1 (Muy satisfecho) y 2 (Satisfecho)
         satisfechos = df_valido[v.isin([1, 2])]["FAC_P18"].sum()
         return (satisfechos / denominador * 100)
     
     return 0.0
-
-def tabla_atributos_imss_total(df, atributos):
-    filas = []
-    
-    # PASO 1: Universo Total de Usuarios (Solo los que dijeron SÍ en P5_1_03)
-    df_usuarios = df[df["P5_1_03"] == 1].copy()
-    
-    if df_usuarios.empty:
-        return pd.DataFrame(columns=["Característica", "Porcentaje"])
-
-    total_usuarios_imss = df_usuarios["FAC_P18"].sum()
-
-    for col, nombre in atributos.items():
-        if col in df_usuarios.columns:
-            # Numerador: Solo los que respondieron 1 (SÍ)
-            # El denominador es el TOTAL de usuarios (incluye 1, 2, 9 y blancos)
-            pob_si = df_usuarios[df_usuarios[col] == 1]["FAC_P18"].sum()
-            
-            if total_usuarios_imss > 0:
-                porcentaje = (pob_si / total_usuarios_imss * 100)
-                filas.append({"Característica": nombre, "Porcentaje": porcentaje})
-    
-    if not filas:
-        return pd.DataFrame(columns=["Característica", "Porcentaje"])
-        
-    return pd.DataFrame(filas).sort_values("Porcentaje", ascending=False)
     
 # ------------------------------------------------------
 # VISUALIZACIÓN REUTILIZABLE
@@ -370,7 +417,7 @@ SERVICIOS_DEMANDA = {
 
 "Servicios de Salud en el IMSS": {
         "calif": "P5_4A",  # Variable de satisfacción (1 a 6)
-        "color": "#023047", # Verde IMSS
+        "color": "#0353a4", # Verde IMSS
         "atributos": {
             "P5_4_01": "Atención inmediata",
             "P5_4_02": "Trato respetuoso del personal",
@@ -388,7 +435,7 @@ SERVICIOS_DEMANDA = {
 
 "Servicios de Salud en el ISSSTE": {
     "calif": "P5_5A",  # Satisfacción general ISSSTE
-    "color": "#641E16", # Color tinto institucional
+    "color": "#006daa", # Color tinto institucional
     "atributos": {
             "P5_5_01": "Atención inmediata",
             "P5_5_02": "Trato respetuoso del personal",
@@ -405,7 +452,7 @@ SERVICIOS_DEMANDA = {
 }, 
 "Servicios de Salud en el INSABI": {
     "calif": "P5_6A",  # Satisfacción general INSABI
-    "color": "#D4AC0D", # Color dorado/ocre
+    "color": "#003559", # Color dorado/ocre
     "atributos": {
             "P5_6_01": "Atención inmediata",
             "P5_6_02": "Trato respetuoso del personal",
@@ -571,9 +618,9 @@ elif categoria == "Servicios Públicos Bajo Demanda":
             barmode="group",
             text_auto=".1f",
             color_discrete_map={
-                "IMSS": "#8d99ae", 
-                "ISSSTE": "#edf2f4", 
-                "INSABI": "#ef233c"
+                "IMSS": "#061a40", 
+                "ISSSTE": "#0353a4", 
+                "INSABI": "#003559"
             }
         )
 
