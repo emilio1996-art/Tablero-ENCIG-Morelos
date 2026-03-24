@@ -5,16 +5,30 @@ import plotly.express as px
 st.set_page_config(page_title="ENVIPE Morelos - Comparativa", layout="wide")
 st.title("🛡️ Análisis de Seguridad (ENVIPE) - Morelos")
 
+import unicodedata # Añade esta importación al inicio de tu archivo
+
 @st.cache_data
 def load_persona_data():
     ruta = "data/MAESTRA_TPer_Vic1_MORELOS_2021_2025.csv"
     df = pd.read_csv(ruta, low_memory=False)
     df.columns = [c.upper() for c in df.columns]
     
-    # --- NORMALIZACIÓN CRÍTICA ---
+    # --- FUNCIÓN INTERNA PARA LIMPIAR TEXTO ---
+    def normalizar_texto(texto):
+        if pd.isna(texto): return texto
+        # 1. Convertir a string y quitar espacios
+        texto = str(texto).strip()
+        # 2. Eliminar acentos (Normalización NFD y filtrado de diacríticos)
+        texto = "".join(
+            c for c in unicodedata.normalize('NFD', texto)
+            if unicodedata.category(c) != 'Mn'
+        )
+        # 3. Regresar en formato Título (Ej: MIACATLAN -> Miacatlan)
+        return texto.title()
+
+    # --- APLICAR LIMPIEZA TOTAL ---
     if 'NOM_MUN' in df.columns:
-        # Eliminamos espacios extra y ponemos Formato Título (Ej: CUERNAVACA -> Cuernavaca)
-        df['NOM_MUN'] = df['NOM_MUN'].str.strip().str.title()
+        df['NOM_MUN'] = df['NOM_MUN'].apply(normalizar_texto)
     
     return df
 
@@ -207,7 +221,7 @@ try:
         st.header("🏢 Percepción de Acciones Municipales")
         st.caption(f"Mostrando datos de: **{muni_sel}**")
         st.markdown("""
-            Esta sección analiza el porcentaje de la población que **sí sabe** o percibe 
+            Esta sección analiza el porcentaje de la población que **sabe** o percibe 
             que su municipio ha realizado acciones específicas para mejorar la seguridad.
         """)
 
@@ -288,6 +302,85 @@ try:
                 tabla_pivot_acc = df_acc.pivot(index='Acción', columns='Año', values='Porcentaje')
                 st.dataframe(tabla_pivot_acc.style.format("{:.1f}%"))
                 st.info("Nota: Los porcentajes corresponden únicamente a la respuesta '1: Sí sabe que se realizó'.")
+            # ==============================================================================
+        # SECCIÓN 4: INSEGURIDAD EN ESPACIOS PÚBLICOS Y PRIVADOS
+        # ==============================================================================
+        st.markdown("---")
+        st.header("📍 Sensación de Inseguridad por Lugar")
+        st.info("Porcentaje de la población que se siente **'Insegura'** en cada espacio específico.")
+
+        dict_espacios = {
+            'AP4_4_01': 'Casa',
+            'AP4_4_02': 'Trabajo',
+            'AP4_4_03': 'Calle',
+            'AP4_4_04': 'Escuela',
+            'AP4_4_05': 'Mercado',
+            'AP4_4_06': 'Centro comercial',
+            'AP4_4_07': 'Banco',
+            'AP4_4_08': 'Cajero automático en vía pública',
+            'AP4_4_09': 'Transporte público',
+            'AP4_4_10': 'Automóvil',
+            'AP4_4_11': 'Carretera',
+            'AP4_4_12': 'Parque'
+        }
+
+        lista_espacios = []
+        for anio in anios_sel:
+            # Usamos df_filtrado para que respete el municipio seleccionado
+            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+            total_ele = df_year['FAC_ELE'].sum()
+            
+            for col_id, nombre_lugar in dict_espacios.items():
+                if col_id in df_year.columns:
+                    # 1. Convertir a numérico y limpiar
+                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce')
+                    
+                    # 2. FILTRO CRÍTICO: Seleccionar solo a quienes sí usan/van a ese lugar
+                    # (Respuestas 1: Seguro y 2: Inseguro)
+                    df_usuarios_lugar = df_year[df_year[col_id].isin([1, 2])]
+                    
+                    # 3. Nuevo Denominador: Población que acude a ese lugar
+                    total_usuarios_exp = df_usuarios_lugar['FAC_ELE'].sum()
+                    
+                    # 4. Numerador: Solo los que se sienten inseguros (Respuesta 2)
+                    inseguros_exp = df_usuarios_lugar[df_usuarios_lugar[col_id] == 2]['FAC_ELE'].sum()
+                    
+                    # 5. Cálculo final
+                    porcentaje = (inseguros_exp / total_usuarios_exp) * 100 if total_usuarios_exp > 0 else 0
+                    
+                    lista_espacios.append({
+                        'Año': str(anio),
+                        'Lugar': nombre_lugar,
+                        'Porcentaje': porcentaje
+                    })
+
+        df_esp = pd.DataFrame(lista_espacios)
+
+        if not df_esp.empty:
+            # Ordenar por el año más reciente para ver qué lugar es el más crítico
+            anio_max_esp = str(max(anios_sel))
+            orden_lugares = df_esp[df_esp['Año'] == anio_max_esp].sort_values(by='Porcentaje', ascending=True)['Lugar'].tolist()
+
+            fig_esp = px.bar(
+                df_esp,
+                x='Porcentaje',
+                y='Lugar',
+                color='Año',
+                barmode='group',
+                orientation='h',
+                text=df_esp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                title=f"¿Qué tan inseguros se sienten en {muni_sel}?",
+                labels={'Porcentaje': 'Población que se siente Insegura (%)', 'Lugar': 'Espacio Físico'},
+                color_discrete_sequence=px.colors.qualitative.Bold,
+                category_orders={"Lugar": orden_lugares}
+            )
+
+            fig_esp.update_layout(height=700, margin=dict(l=200))
+            fig_esp.update_traces(textposition='outside')
+            st.plotly_chart(fig_esp, use_container_width=True)
+            
+            with st.expander("Ver datos detallados por lugar"):
+                st.dataframe(df_esp.pivot(index='Lugar', columns='Año', values='Porcentaje').style.format("{:.1f}%"))
 
 except Exception as e:
     st.error(f"Error en la comparativa: {e}")
