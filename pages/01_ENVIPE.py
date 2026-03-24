@@ -35,6 +35,15 @@ def load_persona_data():
 try:
     df_per = load_persona_data()
 
+    # Diccionario de colores basado en tu imagen
+    colores_años = {
+        "2021": "#1E8449", # Verde oscuro
+        "2022": "#82BF45", # Verde claro
+        "2023": "#45B39D", # Turquesa/Cian
+        "2024": "#5B2C6F", # Morado
+        "2025": "#2471A3"  # Azul
+    }
+
     # 1. Filtro Multiselect de Años en la Sidebar
     st.sidebar.header("Configuración del Análisis")
     anios_disponibles = sorted(df_per['ANIO_ESTADISTICO'].unique())
@@ -194,6 +203,7 @@ try:
                 color='Año',
                 barmode='group',
                 orientation='h',
+                color_discrete_map=colores_años, 
                 text=df_comp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
                 labels={'Porcentaje': 'Porcentaje de la Población (%)', 'Tema': 'Problemática'},
                 color_discrete_sequence=px.colors.qualitative.Safe,
@@ -368,6 +378,7 @@ try:
                 color='Año',
                 barmode='group',
                 orientation='h',
+                color_discrete_map=colores_años,
                 text=df_esp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
                 title=f"¿Qué tan inseguros se sienten en {muni_sel}?",
                 labels={'Porcentaje': 'Población que se siente Insegura (%)', 'Lugar': 'Espacio Físico'},
@@ -381,6 +392,84 @@ try:
             
             with st.expander("Ver datos detallados por lugar"):
                 st.dataframe(df_esp.pivot(index='Lugar', columns='Año', values='Porcentaje').style.format("{:.1f}%"))
+
+        
+        # ==============================================================================
+        # SECCIÓN 5: CONDUCTAS DELICTIVAS O ANTISOCIALES EN EL ENTORNO
+        # ==============================================================================
+        st.markdown("---")
+        st.header("🔊 Conductas Delictivas y Antisociales")
+        st.info("Porcentaje de la población que ha identificado estas conductas en los alrededores de su vivienda.")
+
+        dict_conductas = {
+            'AP4_5_01': 'Consumo de alcohol en la calle',
+            'AP4_5_02': 'Pandillerismo',
+            'AP4_5_03': 'Peleas entre vecinos',
+            'AP4_5_04': 'Venta ilegal de alcohol',
+            'AP4_5_05': 'Venta de piratería',
+            'AP4_5_06': 'Violencia policial contra ciudadanos',
+            'AP4_5_07': 'Invasión de predios',
+            'AP4_5_08': 'Consumo de drogas',
+            'AP4_5_09': 'Robos o asaltos frecuentes',
+            'AP4_5_10': 'Venta de droga',
+            'AP4_5_11': 'Disparos frecuentes',
+            'AP4_5_12': 'Prostitución',
+            'AP4_5_13': 'Secuestros',
+            'AP4_5_14': 'Homicidios',
+            'AP4_5_15': 'Extorsión (cobro de piso)',
+            'AP4_5_16': 'Huachicol',
+            'AP4_5_17': 'Tomas irregulares de luz',
+            'AP4_5_18': 'Ninguna'
+        }
+
+        lista_conductas = []
+        for anio in anios_sel:
+            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+            total_ele = df_year['FAC_ELE'].sum()
+            
+            for col_id, nombre_conducta in dict_conductas.items():
+                if col_id in df_year.columns:
+                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
+                    
+                    # Numerador: Personas que respondieron 1 (Sí)
+                    si_exp = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
+                    
+                    porcentaje = (si_exp / total_ele) * 100 if total_ele > 0 else 0
+                    
+                    lista_conductas.append({
+                        'Año': str(anio),
+                        'Conducta': nombre_conducta,
+                        'Porcentaje': porcentaje
+                    })
+
+        df_cond = pd.DataFrame(lista_conductas)
+
+        if not df_cond.empty:
+            # Ordenamos por el año más reciente para ver la conducta más frecuente arriba
+            anio_max_cond = str(max(anios_sel))
+            orden_cond = df_cond[df_cond['Año'] == anio_max_cond].sort_values(by='Porcentaje', ascending=True)['Conducta'].tolist()
+
+            fig_cond = px.bar(
+                df_cond,
+                x='Porcentaje',
+                y='Conducta',
+                color='Año',
+                barmode='group',
+                orientation='h',
+                color_discrete_map=colores_años,
+                text=df_cond['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                title=f"Conductas observadas en el entorno de {muni_sel}",
+                labels={'Porcentaje': '% de la Población', 'Conducta': 'Conducta Observada'},
+                color_discrete_sequence=px.colors.qualitative.Pastel,
+                category_orders={"Conducta": orden_cond}
+            )
+
+            fig_cond.update_layout(height=850, margin=dict(l=250))
+            fig_cond.update_traces(textposition='outside')
+            st.plotly_chart(fig_cond, use_container_width=True)
+            
+            with st.expander("Ver tabla de datos (Conductas)"):
+                st.dataframe(df_cond.pivot(index='Conducta', columns='Año', values='Porcentaje').style.format("{:.1f}%"))
 
 except Exception as e:
     st.error(f"Error en la comparativa: {e}")
