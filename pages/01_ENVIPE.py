@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import unicodedata
 
+# 1. Configuración de la página
 st.set_page_config(page_title="ENVIPE Morelos - Comparativa", layout="wide")
-st.title("🛡️ Análisis de Seguridad (ENVIPE) - Morelos")
 
-import unicodedata # Añade esta importación al inicio de tu archivo
-
+# 2. Función de carga de datos con normalización (Mantenida intacta)
 @st.cache_data
 def load_persona_data():
     ruta = "data/MAESTRA_TPer_Vic1_MORELOS_2021_2025.csv"
@@ -32,6 +32,12 @@ def load_persona_data():
     
     return df
 
+# 3. Inicialización de datos
+try:
+    df_per = load_persona_data()
+except Exception as e:
+    st.error(f"Error al cargar la base de datos: {e}")
+
 try:
     df_per = load_persona_data()
 
@@ -44,432 +50,532 @@ try:
         "2025": "#2471A3"  # Azul
     }
 
-    # 1. Filtro Multiselect de Años en la Sidebar
-    st.sidebar.header("Configuración del Análisis")
-    anios_disponibles = sorted(df_per['ANIO_ESTADISTICO'].unique())
-    anios_sel = st.sidebar.multiselect(
-        "Seleccione los años para comparar:",
-        options=anios_disponibles,
-        default=anios_disponibles[-2:] # Por defecto los últimos dos años
+    # ==============================================================================
+    # CONFIGURACIÓN DEL MENÚ LATERAL (REESTRUCTURADO)
+    # ==============================================================================
+    st.sidebar.title("📊 Sistema de Estadísticas")
+
+    # Nivel 1: Gran Tema
+    tema_principal = st.sidebar.selectbox(
+        "Seleccione el Tema Principal:",
+        options=["PRINCIPAL", "ENCIG", "ENVIPE"],
+        index=2 # Para que inicie en ENVIPE por defecto
     )
 
-    # ==========================================
-    # NUEVO BLOQUE: FILTRO DE MUNICIPIO (INSERTAR AQUÍ)
-    # ==========================================
-    st.sidebar.divider()
-    st.sidebar.subheader("📍 Filtro Geográfico")
-    
-    # Al estar normalizados a .title(), la lista saldrá limpia y sin duplicados
-    municipios_lista = sorted(df_per['NOM_MUN'].unique().tolist())
-    
-    muni_sel = st.sidebar.selectbox(
-        "Seleccione un Municipio:",
-        options=["Todo el Estado"] + municipios_lista
-    )
+    # Lógica de navegación para ENVIPE
+    if tema_principal == "ENVIPE":
+        st.sidebar.header("🛡️ Menú ENVIPE")
+        
+        # Nivel 2: Subtemas
+        subtema_envipe = st.sidebar.radio(
+            "Seleccione una dimensión:",
+            options=[
+                "Prevalencia y Víctimas",  
+                "Desempeño Institucional"
+            ]
+        )
+        
+        st.sidebar.divider()
+        st.sidebar.subheader("⚙️ Filtros Globales")
+        
+        # Selección de años disponibles en la base de datos
+        anios_disponibles = sorted(df_per['ANIO_ESTADISTICO'].unique())
+        anios_sel = st.sidebar.multiselect(
+            "Años a comparar:",
+            options=anios_disponibles,
+            default=anios_disponibles[-2:]
+        )
+        
+        # Lista de municipios (ya normalizada en la carga de datos)
+        municipios_lista = sorted(df_per['NOM_MUN'].unique().tolist())
+        muni_sel = st.sidebar.selectbox(
+            "Municipio:",
+            options=["Todo el Estado"] + municipios_lista
+        )
 
-    # Filtrado Global
-    df_filtrado = df_per[df_per['ANIO_ESTADISTICO'].isin(anios_sel)].copy()
+        # --- Lógica de Filtrado Global ---
+        df_filtrado = df_per[df_per['ANIO_ESTADISTICO'].isin(anios_sel)].copy()
+        if muni_sel != "Todo el Estado":
+            df_filtrado = df_filtrado[df_filtrado['NOM_MUN'] == muni_sel]
 
-    if muni_sel != "Todo el Estado":
-        df_filtrado = df_filtrado[df_filtrado['NOM_MUN'] == muni_sel]
-    # ==========================================
-
-    if not anios_sel:
-        st.warning("⚠️ Por favor, seleccione al menos un año en el menú lateral.")
-    else:
-        # ==============================================================================
-        # SECCIÓN 1: PREVALENCIA DELICTIVA EN HOGARES (NUEVA)
-        # ==============================================================================
-        st.markdown("### 🏠 Prevalencia Delictiva en Hogares")
-        st.caption(f"Mostrando datos de: **{muni_sel}**")
-        st.info("Cálculo basado en el resultado de la entrevista (RESUL_H) y expansión por hogares.")
-
-        lista_prev_hogar = []
-        for anio in sorted(anios_sel):
-            df_anio = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
-            
-            # 1. FILTRO CRÍTICO: Dejar solo un registro por cada ID de Hogar
-            # Esto es lo que permite que el denominador sea de ~618k y no de millones (personas)
-            df_hogares_unicos = df_anio.drop_duplicates(subset=['ID_HOG'])
-            
-            # 2. Denominador: Suma de FAC_HOG de todos los hogares (Entrevistas A y B)
-            df_completos = df_hogares_unicos[df_hogares_unicos['RESUL_H'].isin(['A', 'B'])]
-            total_hogares_exp = df_completos['FAC_HOG'].sum()
-            
-            # 3. Numerador: Hogares con victimización (Categoría 'A')
-            hogares_vict_exp = df_completos[df_completos['RESUL_H'] == 'A']['FAC_HOG'].sum()
-            
-            # 4. Cálculo de Porcentaje y Tasa
-            porcentaje = (hogares_vict_exp / total_hogares_exp) * 100 if total_hogares_exp > 0 else 0
-            tasa = (hogares_vict_exp / total_hogares_exp) * 100000 if total_hogares_exp > 0 else 0
-            
-            lista_prev_hogar.append({
-                'Año': str(anio),
-                'Porcentaje': porcentaje,
-                'Tasa': tasa,
-                'Estimado': hogares_vict_exp,
-                'Base_Total': total_hogares_exp
-            })
-
-        df_prev_h = pd.DataFrame(lista_prev_hogar)
-
-        # Visualización de Tarjetas (KPIs)
-        cols_metrics = st.columns(len(lista_prev_hogar))
-        for i, dato in enumerate(lista_prev_hogar):
-            with cols_metrics[i]:
-                st.metric(
-                    label=f"Prevalencia {dato['Año']}", 
-                    value=f"{dato['Porcentaje']:.1f}%",
-                    delta=f"{int(dato['Estimado']):,} hogares víctimas"
-                )
-                st.caption(f"De {int(dato['Base_Total']):,} hogares estimados")
-
-        # 5. Gráfica de Tendencia
-        fig_prev = px.line(df_prev_h, x='Año', y='Porcentaje', markers=True, 
-                          text=df_prev_h['Porcentaje'].apply(lambda x: f"{x:.1f}%"),
-                          title="Porcentaje de Hogares Víctima en Morelos (Tendencia)")
-        fig_prev.update_traces(textposition="top center", line_color="#E74C3C") 
-        st.plotly_chart(fig_prev, use_container_width=True)
-
-        # --- NOTA METODOLÓGICA CORREGIDA ---
-        # Definimos las variables necesarias para la nota fuera del bucle
-        if not df_prev_h.empty:
-            ultimo_dato = df_prev_h.iloc[-1] # Toma el último año de la lista analizada
-            
-            with st.expander("📝 Nota Metodológica sobre el cálculo de Prevalencia"):
-                st.markdown(f"""
-                **Consideraciones sobre los datos presentados:**
+    # --- Lógica de Navegación del Cuerpo Principal ---
+        if not anios_sel:
+            st.warning("⚠️ Por favor, seleccione al menos un año en el menú lateral.")
+        
+        else:
+            # ==============================================================================
+            # SECCIÓN 1: PREVALENCIA Y VÍCTIMAS
+            # ==============================================================================
+            if subtema_envipe == "Prevalencia y Víctimas":
                 
-                1. **Fuente de Datos:** Este cálculo utiliza la base de datos de integrantes (`TPer_Vic1`) de la ENVIPE.
-                2. **Universo de Estudio:** Se identificaron **{int(ultimo_dato['Base_Total']):,}** hogares estimados en Morelos para el año {ultimo_dato['Año']}, cifra que coincide con el marco muestral oficial de INEGI.
-                3. **Variación en la Tasa:** La tasa calculada en este tablero ({ultimo_dato['Porcentaje']:.1f}%) presenta una variación respecto al boletín de prensa oficial (30.2%) debido a que el INEGI integra validaciones adicionales provenientes del **Módulo de Delitos (Tabla TVic)**.
-                4. **Criterio de Identificación:** Se considera un hogar víctima aquel cuya entrevista fue clasificada con resultado **'A' (Con Victimización)** en la variable `RESUL_H`.
-                5. **Años con datos nulos:** Algunas ediciones de la ENVIPE no consideran la totalidad de los municipios de la Entidad, por lo que al aplicar el fltro de "Municipio habrá algunos años que no muestren datos en las gráficas".
+                # --- SECCIÓN: PREVALENCIA DELICTIVA EN HOGARES ---
+                st.markdown("### 🏠 Prevalencia Delictiva en Hogares")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+                st.info("Cálculo basado en el resultado de la entrevista (RESUL_H) y expansión por hogares.")
+
+                lista_prev_hogar = []
+                for anio in sorted(anios_sel):
+                    df_anio = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    
+                    # 1. FILTRO CRÍTICO: Dejar solo un registro por cada ID de Hogar
+                    # Esto es lo que permite que el denominador sea de ~618k y no de millones (personas)
+                    df_hogares_unicos = df_anio.drop_duplicates(subset=['ID_HOG'])
+                    
+                    # 2. Denominador: Suma de FAC_HOG de todos los hogares (Entrevistas A y B)
+                    df_completos = df_hogares_unicos[df_hogares_unicos['RESUL_H'].isin(['A', 'B'])]
+                    total_hogares_exp = df_completos['FAC_HOG'].sum()
+                    
+                    # 3. Numerador: Hogares con victimización (Categoría 'A')
+                    hogares_vict_exp = df_completos[df_completos['RESUL_H'] == 'A']['FAC_HOG'].sum()
+                    
+                    # 4. Cálculo de Porcentaje y Tasa
+                    porcentaje = (hogares_vict_exp / total_hogares_exp) * 100 if total_hogares_exp > 0 else 0
+                    tasa = (hogares_vict_exp / total_hogares_exp) * 100000 if total_hogares_exp > 0 else 0
+                    
+                    lista_prev_hogar.append({
+                        'Año': str(anio),
+                        'Porcentaje': porcentaje,
+                        'Tasa': tasa,
+                        'Estimado': hogares_vict_exp,
+                        'Base_Total': total_hogares_exp
+                    })
+
+        # --- PROCESAMIENTO Y VISUALIZACIÓN ---
+                df_prev_h = pd.DataFrame(lista_prev_hogar)
+
+                # Visualización de Tarjetas (KPIs)
+                cols_metrics = st.columns(len(lista_prev_hogar))
+                for i, dato in enumerate(lista_prev_hogar):
+                    with cols_metrics[i]:
+                        st.metric(
+                            label=f"Prevalencia {dato['Año']}", 
+                            value=f"{dato['Porcentaje']:.1f}%",
+                            delta=f"{int(dato['Estimado']):,} hogares víctimas"
+                        )
+                        st.caption(f"De {int(dato['Base_Total']):,} hogares estimados")
+
+                # 5. Gráfica de Tendencia
+                fig_prev = px.line(df_prev_h, x='Año', y='Porcentaje', markers=True, 
+                                  text=df_prev_h['Porcentaje'].apply(lambda x: f"{x:.1f}%"),
+                                  title="Porcentaje de Hogares Víctima en Morelos (Tendencia)")
+                fig_prev.update_traces(textposition="top center", line_color="#E74C3C") 
+                st.plotly_chart(fig_prev, use_container_width=True)
+
+                # --- NOTA METODOLÓGICA CORREGIDA ---
+                if not df_prev_h.empty:
+                    ultimo_dato = df_prev_h.iloc[-1] # Toma el último año de la lista analizada
+                    
+                    with st.expander("📝 Nota Metodológica sobre el cálculo de Prevalencia"):
+                        st.markdown(f"""
+                        **Consideraciones sobre los datos presentados:**
+                        
+                        1. **Fuente de Datos:** Este cálculo utiliza la base de datos de integrantes (`TPer_Vic1`) de la ENVIPE.
+                        2. **Universo de Estudio:** Se identificaron **{int(ultimo_dato['Base_Total']):,}** hogares estimados en Morelos para el año {ultimo_dato['Año']}, cifra que coincide con el marco muestral oficial de INEGI.
+                        3. **Variación en la Tasa:** La tasa calculada en este tablero ({ultimo_dato['Porcentaje']:.1f}%) presenta una variación respecto al boletín de prensa oficial (30.2%) debido a que el INEGI integra validaciones adicionales provenientes del **Módulo de Delitos (Tabla TVic)**.
+                        4. **Criterio de Identificación:** Se considera un hogar víctima aquel cuya entrevista fue clasificada con resultado **'A' (Con Victimización)** en la variable `RESUL_H`.
+                        5. **Años con datos nulos:** Algunas ediciones de la ENVIPE no consideran la totalidad de los municipios de la Entidad, por lo que al aplicar el fltro de "Municipio" habrá algunos años que no muestren datos en las gráficas.
+                        
+                        *Este tablero prioriza la tendencia histórica y la comparativa entre años utilizando una metodología consistente sobre la base de integrantes.*
+                        """)
+
+                # --- SUBTEMA 2: PREOCUPACIONES CIUDADANAS (DENTRO DEL IF) ---
+                st.markdown("---")
+                st.header("🛡️ Percepciones de Principales Problemas en Morelos")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+
+                dict_preocupaciones = {
+                    'AP4_2_01': 'Pobreza', 'AP4_2_02': 'Desempleo', 'AP4_2_03': 'Narcotráfico',
+                    'AP4_2_04': 'Aumento de Precios', 'AP4_2_05': 'Inseguridad', 'AP4_2_06': 'Desastres Naturales',
+                    'AP4_2_07': 'Escasez de Agua', 'AP4_2_08': 'Corrupción', 'AP4_2_09': 'Educación',
+                    'AP4_2_10': 'Salud', 'AP4_2_11': 'Falta de Castigo a Delincuentes', 'AP4_2_12': 'Otro',
+                    'AP4_2_13': 'Ninguno', 'AP4_2_99': 'Sin respuesta'
+                }
+
+                lista_comparativa = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    total_ele = df_year['FAC_ELE'].sum() 
+                    
+                    for col_id, nombre in dict_preocupaciones.items():
+                        if col_id in df_year.columns:
+                            df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
+                            suma_expandida = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
+                            porcentaje = (suma_expandida / total_ele) * 100 if total_ele > 0 else 0
+                            
+                            lista_comparativa.append({
+                                'Año': str(anio), 'Tema': nombre, 'Porcentaje': porcentaje
+                            })
+
+                df_comp = pd.DataFrame(lista_comparativa)
+
+                if not df_comp.empty:
+                    categorias_final = ['NS/NR', 'Sin respuesta', 'Ninguno', 'Otro', 'Desastres Naturales']
+                    todos_los_temas = df_comp['Tema'].unique().tolist()
+                    temas_importantes = [t for t in todos_los_temas if t not in categorias_final]
+                    
+                    anio_max = str(max(anios_sel))
+                    df_ref = df_comp[df_comp['Año'] == anio_max].sort_values(by='Porcentaje', ascending=True)
+                    orden_principales = [t for t in df_ref['Tema'].tolist() if t in temas_importantes]
+                    orden_final = [t for t in categorias_final if t in todos_los_temas] + orden_principales
+
+                    st.subheader("📊 Evolución de las Preocupaciones Ciudadanas")
+                    
+                    fig = px.bar(
+                        df_comp, x='Porcentaje', y='Tema', color='Año',
+                        barmode='group', orientation='h',
+                        color_discrete_map=colores_años, 
+                        text=df_comp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                        labels={'Porcentaje': 'Porcentaje (%)', 'Tema': 'Problemática'},
+                        category_orders={"Tema": orden_final}
+                    )
+                    fig.update_layout(height=800, margin=dict(l=200))
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    with st.expander("Ver tabla comparativa detallada"):
+                        tabla_pivot = df_comp.pivot(index='Tema', columns='Año', values='Porcentaje')
+                        st.dataframe(tabla_pivot.style.format("{:.1f}%"))
+
+                # ==============================================================================
+                # SUBTEMA 3: INSEGURIDAD EN ESPACIOS PÚBLICOS Y PRIVADOS
+                # ==============================================================================
+                st.markdown("---")
+                st.header("📍 Sensación de Inseguridad por Lugar")
+                st.info("Porcentaje de la población que se siente **'Insegura'** en cada espacio específico.")
+
+                dict_espacios = {
+                    'AP4_4_01': 'Casa',
+                    'AP4_4_02': 'Trabajo',
+                    'AP4_4_03': 'Calle',
+                    'AP4_4_04': 'Escuela',
+                    'AP4_4_05': 'Mercado',
+                    'AP4_4_06': 'Centro comercial',
+                    'AP4_4_07': 'Banco',
+                    'AP4_4_08': 'Cajero automático en vía pública',
+                    'AP4_4_09': 'Transporte público',
+                    'AP4_4_10': 'Automóvil',
+                    'AP4_4_11': 'Carretera',
+                    'AP4_4_12': 'Parque'
+                }
+
+                lista_espacios = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    
+                    for col_id, nombre_lugar in dict_espacios.items():
+                        if col_id in df_year.columns:
+                            # 1. Convertir a numérico y limpiar
+                            df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce')
+                            
+                            # 2. FILTRO CRÍTICO: Seleccionar solo a quienes sí usan/van a ese lugar
+                            # (Respuestas 1: Seguro y 2: Inseguro)
+                            df_usuarios_lugar = df_year[df_year[col_id].isin([1, 2])]
+                            
+                            # 3. Nuevo Denominador: Población que acude a ese lugar
+                            total_usuarios_exp = df_usuarios_lugar['FAC_ELE'].sum()
+                            
+                            # 4. Numerador: Solo los que se sienten inseguros (Respuesta 2)
+                            inseguros_exp = df_usuarios_lugar[df_usuarios_lugar[col_id] == 2]['FAC_ELE'].sum()
+                            
+                            # 5. Cálculo final
+                            porcentaje = (inseguros_exp / total_usuarios_exp) * 100 if total_usuarios_exp > 0 else 0
+                            
+                            lista_espacios.append({
+                                'Año': str(anio),
+                                'Lugar': nombre_lugar,
+                                'Porcentaje': porcentaje
+                            })
+
+                df_esp = pd.DataFrame(lista_espacios)
+
+                if not df_esp.empty:
+                    # Ordenar por el año más reciente
+                    anio_max_esp = str(max(anios_sel))
+                    df_ref_esp = df_esp[df_esp['Año'] == anio_max_esp].sort_values(by='Porcentaje', ascending=True)
+                    orden_lugares = df_ref_esp['Lugar'].tolist()
+
+                    fig_esp = px.bar(
+                        df_esp,
+                        x='Porcentaje',
+                        y='Lugar',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_map=colores_años,
+                        text=df_esp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                        title=f"¿Qué tan inseguros se sienten en {muni_sel}?",
+                        labels={'Porcentaje': 'Población Insegura (%)', 'Lugar': 'Espacio Físico'},
+                        category_orders={"Lugar": orden_lugares}
+                    )
+
+                    fig_esp.update_layout(height=700, margin=dict(l=200))
+                    fig_esp.update_traces(textposition='outside')
+                    st.plotly_chart(fig_esp, use_container_width=True)
+                    
+                    with st.expander("Ver datos detallados por lugar"):
+                        tabla_pivot_esp = df_esp.pivot(index='Lugar', columns='Año', values='Porcentaje')
+                        st.dataframe(tabla_pivot_esp.style.format("{:.1f}%"))
+
+                # ==============================================================================
+                # SUBTEMA 4: CONDUCTAS DELICTIVAS O ANTISOCIALES EN EL ENTORNO
+                # ==============================================================================
+                st.markdown("---")
+                st.header("🔊 Conductas Delictivas y Antisociales")
+                st.info("Porcentaje de la población que ha identificado estas conductas en los alrededores de su vivienda.")
+
+                dict_conductas = {
+                    'AP4_5_01': 'Consumo de alcohol en la calle',
+                    'AP4_5_02': 'Pandillerismo',
+                    'AP4_5_03': 'Peleas entre vecinos',
+                    'AP4_5_04': 'Venta ilegal de alcohol',
+                    'AP4_5_05': 'Venta de piratería',
+                    'AP4_5_06': 'Violencia policial contra ciudadanos',
+                    'AP4_5_07': 'Invasión de predios',
+                    'AP4_5_08': 'Consumo de drogas',
+                    'AP4_5_09': 'Robos o asaltos frecuentes',
+                    'AP4_5_10': 'Venta de droga',
+                    'AP4_5_11': 'Disparos frecuentes',
+                    'AP4_5_12': 'Prostitución',
+                    'AP4_5_13': 'Secuestros',
+                    'AP4_5_14': 'Homicidios',
+                    'AP4_5_15': 'Extorsión (cobro de piso)',
+                    'AP4_5_16': 'Huachicol',
+                    'AP4_5_17': 'Tomas irregulares de luz',
+                    'AP4_5_18': 'Ninguna'
+                }
+
+                lista_conductas = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    total_ele = df_year['FAC_ELE'].sum()
+                    
+                    for col_id, nombre_conducta in dict_conductas.items():
+                        if col_id in df_year.columns:
+                            df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
+                            
+                            # Numerador: Personas que respondieron 1 (Sí)
+                            si_exp = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
+                            porcentaje = (si_exp / total_ele) * 100 if total_ele > 0 else 0
+                            
+                            lista_conductas.append({
+                                'Año': str(anio),
+                                'Conducta': nombre_conducta,
+                                'Porcentaje': porcentaje
+                            })
+
+                df_cond = pd.DataFrame(lista_conductas)
+
+                if not df_cond.empty:
+                    anio_max_cond = str(max(anios_sel))
+                    df_ref_cond = df_cond[df_cond['Año'] == anio_max_cond].sort_values(by='Porcentaje', ascending=True)
+                    orden_cond = df_ref_cond['Conducta'].tolist()
+
+                    fig_cond = px.bar(
+                        df_cond,
+                        x='Porcentaje',
+                        y='Conducta',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_map=colores_años,
+                        text=df_cond['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                        title=f"Conductas observadas en el entorno de {muni_sel}",
+                        labels={'Porcentaje': '% de la Población', 'Conducta': 'Conducta Observada'},
+                        category_orders={"Conducta": orden_cond}
+                    )
+
+                    fig_cond.update_layout(height=850, margin=dict(l=250))
+                    fig_cond.update_traces(textposition='outside')
+                    st.plotly_chart(fig_cond, use_container_width=True)
+                    
+                    with st.expander("Ver tabla de datos (Conductas)"):
+                        tabla_pivot_cond = df_cond.pivot(index='Conducta', columns='Año', values='Porcentaje')
+                        st.dataframe(tabla_pivot_cond.style.format("{:.1f}%"))
+
+                        
                 
-                *Este tablero prioriza la tendencia histórica y la comparativa entre años utilizando una metodología consistente sobre la base de integrantes.*
+            # ==============================================================================
+            # SECCIÓN 2: DESEMPEÑO INSTITUCIONAL (NUEVO BLOQUE)
+            # ==============================================================================
+            elif subtema_envipe == "Desempeño Institucional":
+                st.header("🏢 Percepción de Acciones Municipales")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+                st.markdown("""
+                    Esta sección analiza el porcentaje de la población que **sabe** o percibe 
+                    que su municipio ha realizado acciones específicas para mejorar la seguridad.
                 """)
 
-        st.markdown("---")
-        st.header("🛡️ Percepciones de Principales Problemas en Morelos")
-        st.caption(f"Mostrando datos de: **{muni_sel}**")
+                dict_acciones = {
+                    'AP5_1_01': 'Construcción de parques y canchas',
+                    'AP5_1_02': 'Mejorar el alumbrado',
+                    'AP5_1_03': 'Mejorar ingreso de las familias',
+                    'AP5_1_04': 'Atender el desempleo',
+                    'AP5_1_05': 'Atender a jóvenes para disminuir pandillerismo',
+                    'AP5_1_06': 'Organización vecinal para seguridad privada',
+                    'AP5_1_07': 'Implementar policía de barrio',
+                    'AP5_1_08': 'Operativos contra delincuencia',
+                    'AP5_1_09': 'Programación de sensibilización para denuncias',
+                    'AP5_1_10': 'Mayor patrullaje',
+                    'AP5_1_11': 'Combatir la corrupción',
+                    'AP5_1_12': 'Combatir el narcotráfico',
+                    'AP5_1_13': 'Programas deportivos, culturales, sociales',
+                    'AP5_1_14': 'Otra'
+                }
 
-        # ==============================================================================
-        # SECCIÓN 2: PREOCUPACIONES CIUDADANAS
-        # ==============================================================================
-        dict_preocupaciones = {
-            'AP4_2_01': 'Pobreza', 'AP4_2_02': 'Desempleo', 'AP4_2_03': 'Narcotráfico',
-            'AP4_2_04': 'Aumento de Precios', 'AP4_2_05': 'Inseguridad', 'AP4_2_06': 'Desastres Naturales',
-            'AP4_2_07': 'Escasez de Agua', 'AP4_2_08': 'Corrupción', 'AP4_2_09': 'Educación',
-            'AP4_2_10': 'Salud', 'AP4_2_11': 'Falta de Castigo a Delincuentes', 'AP4_2_12': 'Otro',
-            'AP4_2_13': 'Ninguno', 'AP4_2_99': 'Sin respuesta'
-        }
-
-        lista_comparativa = []
-        for anio in anios_sel:
-            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
-            total_ele = df_year['FAC_ELE'].sum() # Preocupaciones usa FAC_ELE (Personas)
-            
-            for col_id, nombre in dict_preocupaciones.items():
-                if col_id in df_year.columns:
-                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
-                    suma_expandida = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
-                    porcentaje = (suma_expandida / total_ele) * 100 if total_ele > 0 else 0
+                lista_acciones = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    total_ele = df_year['FAC_ELE'].sum()
                     
-                    lista_comparativa.append({
-                        'Año': str(anio),
-                        'Tema': nombre,
-                        'Porcentaje': porcentaje
-                    })
+                    for col_id, nombre_accion in dict_acciones.items():
+                        if col_id in df_year.columns:
+                            df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
+                            suma_expandida = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
+                            porcentaje = (suma_expandida / total_ele) * 100 if total_ele > 0 else 0
+                            
+                            lista_acciones.append({
+                                'Año': str(anio),
+                                'Acción': nombre_accion,
+                                'Porcentaje': porcentaje
+                            })
 
-        df_comp = pd.DataFrame(lista_comparativa)
+                df_acc = pd.DataFrame(lista_acciones)
 
-        if not df_comp.empty:
-            categorias_final = ['NS/NR', 'Sin respuesta', 'Ninguno', 'Otro', 'Desastres Naturales']
-            todos_los_temas = df_comp['Tema'].unique().tolist()
-            temas_importantes = [t for t in todos_los_temas if t not in categorias_final]
-            
-            anio_max = str(max(anios_sel))
-            df_ref = df_comp[df_comp['Año'] == anio_max].sort_values(by='Porcentaje', ascending=True)
-            orden_principales = [t for t in df_ref['Tema'].tolist() if t in temas_importantes]
-            
-            orden_final = [t for t in categorias_final if t in todos_los_temas] + orden_principales
+                if not df_acc.empty:
+                    anio_max_acc = str(max(anios_sel))
+                    df_ref_acc = df_acc[df_acc['Año'] == anio_max_acc].sort_values(by='Porcentaje', ascending=True)
+                    orden_acciones = df_ref_acc['Acción'].tolist()
 
-            st.subheader("📊 Evolución de las Preocupaciones Ciudadanas")
-            
-            fig = px.bar(
-                df_comp,
-                x='Porcentaje',
-                y='Tema',
-                color='Año',
-                barmode='group',
-                orientation='h',
-                color_discrete_map=colores_años, 
-                text=df_comp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                labels={'Porcentaje': 'Porcentaje de la Población (%)', 'Tema': 'Problemática'},
-                color_discrete_sequence=px.colors.qualitative.Safe,
-                category_orders={"Tema": orden_final}
-            )
-
-            fig.update_layout(
-                height=800,
-                yaxis={'categoryorder':'array', 'categoryarray': orden_final},
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=200)
-            )
-            
-            fig.update_traces(textposition='outside', textfont_size=11)
-            st.plotly_chart(fig, use_container_width=True)
-
-            with st.expander("Ver tabla comparativa detallada"):
-                tabla_pivot = df_comp.pivot(index='Tema', columns='Año', values='Porcentaje')
-                st.dataframe(tabla_pivot.style.format("{:.1f}%"))
-
-        # ==============================================================================
-        # SECCIÓN 3: ACCIONES REALIZADAS POR EL MUNICIPIO
-        # ==============================================================================
-        st.markdown("---")
-        st.header("🏢 Percepción de Acciones Municipales")
-        st.caption(f"Mostrando datos de: **{muni_sel}**")
-        st.markdown("""
-            Esta sección analiza el porcentaje de la población que **sabe** o percibe 
-            que su municipio ha realizado acciones específicas para mejorar la seguridad.
-        """)
-
-        dict_acciones = {
-            'AP5_1_01': 'Construcción de parques y canchas',
-            'AP5_1_02': 'Mejorar el alumbrado',
-            'AP5_1_03': 'Mejorar ingreso de las familias',
-            'AP5_1_04': 'Atender el desempleo',
-            'AP5_1_05': 'Atender a jóvenes para disminuir pandillerismo',
-            'AP5_1_06': 'Organización vecinal para seguridad privada',
-            'AP5_1_07': 'Implementar policía de barrio',
-            'AP5_1_08': 'Operativos contra delincuencia',
-            'AP5_1_09': 'Programación de sensibilización para denuncias',
-            'AP5_1_10': 'Mayor patrullaje',
-            'AP5_1_11': 'Combatir la corrupción',
-            'AP5_1_12': 'Combatir el narcotráfico',
-            'AP5_1_13': 'Programas deportivos, culturales, sociales',
-            'AP5_1_14': 'Otra'
-        }
-
-        lista_acciones = []
-        for anio in anios_sel:
-            # CAMBIO CRÍTICO: Usar df_filtrado en lugar de df_per
-            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
-            
-            total_ele = df_year['FAC_ELE'].sum()
-            
-            for col_id, nombre_accion in dict_acciones.items():
-                if col_id in df_year.columns:
-                    # Aseguramos que los datos sean numéricos
-                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
+                    st.subheader("📊 Evolución de la Percepción de Acciones (Respuesta: 'Sí sabe')")
                     
-                    # Filtramos donde la respuesta es 1 (Sí sabe) y sumamos el factor de expansión
-                    suma_expandida = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
+                    fig_acc = px.bar(
+                        df_acc,
+                        x='Porcentaje',
+                        y='Acción',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        text=df_acc['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                        labels={'Porcentaje': 'Población (%)', 'Acción': 'Acción Municipal'},
+                        color_discrete_map=colores_años, # Usamos tus colores definidos
+                        category_orders={"Acción": orden_acciones} 
+                    )
+
+                    fig_acc.update_layout(
+                        height=700,
+                        yaxis={'categoryorder': 'array', 'categoryarray': orden_acciones},
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        margin=dict(l=220),
+                        xaxis_range=[0, 100]
+                    )
                     
-                    porcentaje = (suma_expandida / total_ele) * 100 if total_ele > 0 else 0
+                    fig_acc.update_traces(textposition='outside', textfont_size=11)
+                    st.plotly_chart(fig_acc, use_container_width=True)
+
+                    with st.expander("Ver tabla de datos detallada (Acciones Municipales)"):
+                        tabla_pivot_acc = df_acc.pivot(index='Acción', columns='Año', values='Porcentaje')
+                        st.dataframe(tabla_pivot_acc.style.format("{:.1f}%"))
+                        st.info("Nota: Los porcentajes corresponden únicamente a la respuesta '1: Sí sabe que se realizó'.")
+
+                # ==============================================================================
+                # SECCIÓN 6: CONFIANZA EN LAS AUTORIDADES (NUEVA)
+                # ==============================================================================
+                st.markdown("---")
+                st.header("🛡️ Percepción de Confianza en las Autoridades")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+                st.info("Porcentaje de la población que manifiesta tener **'Mucha'** o **'Algo'** de confianza en cada institución.")
+
+                # Mapeo corregido según el cambio de variables de INEGI
+                MAPEO_AUTORIDADES = {
+                    "2021": {
+                        "AP5_4_01": "Policía de Tránsito Municipal",
+                        "AP5_4_02": "Policía Preventiva Municipal",
+                        "AP5_4_03": "Policía Estatal",
+                        "AP5_4_04": "Policía Ministerial o Judicial",
+                        "AP5_4_05": "Guardia Nacional", # En 2021 la GN solía ser la 05
+                        "AP5_4_06": "Ministerio Público (MP) y Fiscalías Estatales", 
+                        "AP5_4_07": "Fiscalía General de la República(FGR)",
+                        "AP5_4_08": "Ejército"
+                    },
+                    "DEFAULT": { 
+                        "AP5_4_01": "Policía de Tránsito Municipal",
+                        "AP5_4_02": "Policía Preventiva Municipal",
+                        "AP5_4_03": "Policía Estatal",
+                        "AP5_4_04": "Guardia Nacional",
+                        "AP5_4_05": "Policía Ministerial o Judicial",
+                        "AP5_4_06": "Ministerio Público (MP) y Fiscalías Estatales",
+                        "AP5_4_07": "Fiscalía General de la República(FGR)",
+                        "AP5_4_08": "Ejército"
+                    }
+                }
+
+                lista_confianza = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    str_anio = str(anio)
                     
-                    lista_acciones.append({
-                        'Año': str(anio),
-                        'Acción': nombre_accion,
-                        'Porcentaje': porcentaje
-                    })
-
-        df_acc = pd.DataFrame(lista_acciones)
-
-        if not df_acc.empty:
-            anio_max_acc = str(max(anios_sel))
-            df_ref_acc = df_acc[df_acc['Año'] == anio_max_acc].sort_values(by='Porcentaje', ascending=True)
-            orden_acciones = df_ref_acc['Acción'].tolist()
-
-            st.subheader("📊 Evolución de la Percepción de Acciones (Respuesta: 'Sí sabe')")
-            
-            fig_acc = px.bar(
-                df_acc,
-                x='Porcentaje',
-                y='Acción',
-                color='Año',
-                barmode='group',
-                orientation='h',
-                text=df_acc['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                labels={'Porcentaje': 'Población que percibe la Acción (%)', 'Acción': 'Tipo de Acción Municipal'},
-                color_discrete_sequence=px.colors.qualitative.Prism,
-                category_orders={"Acción": orden_acciones} 
-             )
-
-            fig_acc.update_layout(
-                height=700,
-                yaxis={'categoryorder': 'array', 'categoryarray': orden_acciones},
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=220),
-                xaxis_range=[0, 100]
-            )
-            
-            fig_acc.update_traces(textposition='outside', textfont_size=11)
-            st.plotly_chart(fig_acc, use_container_width=True)
-
-            with st.expander("Ver tabla de datos detallada (Acciones Municipales)"):
-                tabla_pivot_acc = df_acc.pivot(index='Acción', columns='Año', values='Porcentaje')
-                st.dataframe(tabla_pivot_acc.style.format("{:.1f}%"))
-                st.info("Nota: Los porcentajes corresponden únicamente a la respuesta '1: Sí sabe que se realizó'.")
-            # ==============================================================================
-        # SECCIÓN 4: INSEGURIDAD EN ESPACIOS PÚBLICOS Y PRIVADOS
-        # ==============================================================================
-        st.markdown("---")
-        st.header("📍 Sensación de Inseguridad por Lugar")
-        st.info("Porcentaje de la población que se siente **'Insegura'** en cada espacio específico.")
-
-        dict_espacios = {
-            'AP4_4_01': 'Casa',
-            'AP4_4_02': 'Trabajo',
-            'AP4_4_03': 'Calle',
-            'AP4_4_04': 'Escuela',
-            'AP4_4_05': 'Mercado',
-            'AP4_4_06': 'Centro comercial',
-            'AP4_4_07': 'Banco',
-            'AP4_4_08': 'Cajero automático en vía pública',
-            'AP4_4_09': 'Transporte público',
-            'AP4_4_10': 'Automóvil',
-            'AP4_4_11': 'Carretera',
-            'AP4_4_12': 'Parque'
-        }
-
-        lista_espacios = []
-        for anio in anios_sel:
-            # Usamos df_filtrado para que respete el municipio seleccionado
-            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
-            total_ele = df_year['FAC_ELE'].sum()
-            
-            for col_id, nombre_lugar in dict_espacios.items():
-                if col_id in df_year.columns:
-                    # 1. Convertir a numérico y limpiar
-                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce')
+                    # Seleccionar el diccionario correcto para este año
+                    dict_anio = MAPEO_AUTORIDADES.get(str_anio, MAPEO_AUTORIDADES["DEFAULT"])
                     
-                    # 2. FILTRO CRÍTICO: Seleccionar solo a quienes sí usan/van a ese lugar
-                    # (Respuestas 1: Seguro y 2: Inseguro)
-                    df_usuarios_lugar = df_year[df_year[col_id].isin([1, 2])]
+                    for col_id, nombre_auth in dict_anio.items():
+                        # Generamos la columna de identificación (AP5_3) basada en la de confianza (AP5_4)
+                        col_ident = col_id.replace('AP5_4_', 'AP5_3_')
+                        
+                        if col_id in df_year.columns and col_ident in df_year.columns:
+                            df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce')
+                            df_year[col_ident] = pd.to_numeric(df_year[col_ident], errors='coerce')
+                            
+                            # Aplicamos el doble filtro (Identifica + Respuesta válida)
+                            df_validos = df_year[
+                                (df_year[col_ident] == 1) & 
+                                (df_year[col_id].isin([1, 2, 3, 4, 9]))
+                            ]
+                            
+                            denominador_real = df_validos['FAC_ELE'].sum()
+                            confianza_exp = df_validos[df_validos[col_id].isin([1, 2])]['FAC_ELE'].sum()
+                            
+                            porcentaje = (confianza_exp / denominador_real) * 100 if denominador_real > 0 else 0
+                            
+                            lista_confianza.append({
+                                'Año': str_anio,
+                                'Autoridad': nombre_auth, # Aquí el nombre ya viene corregido por año
+                                'Confianza': porcentaje
+                            })
+
+                df_conf = pd.DataFrame(lista_confianza)
+
+                if not df_conf.empty:
+                    # Ordenar por el año más reciente para ver la autoridad más confiable arriba
+                    anio_max_conf = str(max(anios_sel))
+                    df_ref_conf = df_conf[df_conf['Año'] == anio_max_conf].sort_values(by='Confianza', ascending=True)
+                    orden_confianza = df_ref_conf['Autoridad'].tolist()
+
+                    st.subheader("📊 Evolución del Nivel de Confianza (Tasa de Aceptación)")
                     
-                    # 3. Nuevo Denominador: Población que acude a ese lugar
-                    total_usuarios_exp = df_usuarios_lugar['FAC_ELE'].sum()
+                    fig_conf = px.bar(
+                        df_conf,
+                        x='Confianza',
+                        y='Autoridad',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_map=colores_años, # Respetamos tus colores
+                        text=df_conf['Confianza'].apply(lambda x: f'{x:.1f}%'),
+                        labels={'Confianza': 'Población que Confía (%)', 'Autoridad': 'Institución'},
+                        category_orders={"Autoridad": orden_confianza}
+                    )
+
+                    fig_conf.update_layout(
+                        height=750, 
+                        margin=dict(l=220),
+                        xaxis_range=[0, 100] # Eje X de 0 a 100%
+                    )
+                    fig_conf.update_traces(textposition='outside')
+                    st.plotly_chart(fig_conf, use_container_width=True)
                     
-                    # 4. Numerador: Solo los que se sienten inseguros (Respuesta 2)
-                    inseguros_exp = df_usuarios_lugar[df_usuarios_lugar[col_id] == 2]['FAC_ELE'].sum()
-                    
-                    # 5. Cálculo final
-                    porcentaje = (inseguros_exp / total_usuarios_exp) * 100 if total_usuarios_exp > 0 else 0
-                    
-                    lista_espacios.append({
-                        'Año': str(anio),
-                        'Lugar': nombre_lugar,
-                        'Porcentaje': porcentaje
-                    })
-
-        df_esp = pd.DataFrame(lista_espacios)
-
-        if not df_esp.empty:
-            # Ordenar por el año más reciente para ver qué lugar es el más crítico
-            anio_max_esp = str(max(anios_sel))
-            orden_lugares = df_esp[df_esp['Año'] == anio_max_esp].sort_values(by='Porcentaje', ascending=True)['Lugar'].tolist()
-
-            fig_esp = px.bar(
-                df_esp,
-                x='Porcentaje',
-                y='Lugar',
-                color='Año',
-                barmode='group',
-                orientation='h',
-                color_discrete_map=colores_años,
-                text=df_esp['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                title=f"¿Qué tan inseguros se sienten en {muni_sel}?",
-                labels={'Porcentaje': 'Población que se siente Insegura (%)', 'Lugar': 'Espacio Físico'},
-                color_discrete_sequence=px.colors.qualitative.Bold,
-                category_orders={"Lugar": orden_lugares}
-            )
-
-            fig_esp.update_layout(height=700, margin=dict(l=200))
-            fig_esp.update_traces(textposition='outside')
-            st.plotly_chart(fig_esp, use_container_width=True)
-            
-            with st.expander("Ver datos detallados por lugar"):
-                st.dataframe(df_esp.pivot(index='Lugar', columns='Año', values='Porcentaje').style.format("{:.1f}%"))
-
-        
-        # ==============================================================================
-        # SECCIÓN 5: CONDUCTAS DELICTIVAS O ANTISOCIALES EN EL ENTORNO
-        # ==============================================================================
-        st.markdown("---")
-        st.header("🔊 Conductas Delictivas y Antisociales")
-        st.info("Porcentaje de la población que ha identificado estas conductas en los alrededores de su vivienda.")
-
-        dict_conductas = {
-            'AP4_5_01': 'Consumo de alcohol en la calle',
-            'AP4_5_02': 'Pandillerismo',
-            'AP4_5_03': 'Peleas entre vecinos',
-            'AP4_5_04': 'Venta ilegal de alcohol',
-            'AP4_5_05': 'Venta de piratería',
-            'AP4_5_06': 'Violencia policial contra ciudadanos',
-            'AP4_5_07': 'Invasión de predios',
-            'AP4_5_08': 'Consumo de drogas',
-            'AP4_5_09': 'Robos o asaltos frecuentes',
-            'AP4_5_10': 'Venta de droga',
-            'AP4_5_11': 'Disparos frecuentes',
-            'AP4_5_12': 'Prostitución',
-            'AP4_5_13': 'Secuestros',
-            'AP4_5_14': 'Homicidios',
-            'AP4_5_15': 'Extorsión (cobro de piso)',
-            'AP4_5_16': 'Huachicol',
-            'AP4_5_17': 'Tomas irregulares de luz',
-            'AP4_5_18': 'Ninguna'
-        }
-
-        lista_conductas = []
-        for anio in anios_sel:
-            df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
-            total_ele = df_year['FAC_ELE'].sum()
-            
-            for col_id, nombre_conducta in dict_conductas.items():
-                if col_id in df_year.columns:
-                    df_year[col_id] = pd.to_numeric(df_year[col_id], errors='coerce').fillna(0)
-                    
-                    # Numerador: Personas que respondieron 1 (Sí)
-                    si_exp = df_year[df_year[col_id] == 1]['FAC_ELE'].sum()
-                    
-                    porcentaje = (si_exp / total_ele) * 100 if total_ele > 0 else 0
-                    
-                    lista_conductas.append({
-                        'Año': str(anio),
-                        'Conducta': nombre_conducta,
-                        'Porcentaje': porcentaje
-                    })
-
-        df_cond = pd.DataFrame(lista_conductas)
-
-        if not df_cond.empty:
-            # Ordenamos por el año más reciente para ver la conducta más frecuente arriba
-            anio_max_cond = str(max(anios_sel))
-            orden_cond = df_cond[df_cond['Año'] == anio_max_cond].sort_values(by='Porcentaje', ascending=True)['Conducta'].tolist()
-
-            fig_cond = px.bar(
-                df_cond,
-                x='Porcentaje',
-                y='Conducta',
-                color='Año',
-                barmode='group',
-                orientation='h',
-                color_discrete_map=colores_años,
-                text=df_cond['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                title=f"Conductas observadas en el entorno de {muni_sel}",
-                labels={'Porcentaje': '% de la Población', 'Conducta': 'Conducta Observada'},
-                color_discrete_sequence=px.colors.qualitative.Pastel,
-                category_orders={"Conducta": orden_cond}
-            )
-
-            fig_cond.update_layout(height=850, margin=dict(l=250))
-            fig_cond.update_traces(textposition='outside')
-            st.plotly_chart(fig_cond, use_container_width=True)
-            
-            with st.expander("Ver tabla de datos (Conductas)"):
-                st.dataframe(df_cond.pivot(index='Conducta', columns='Año', values='Porcentaje').style.format("{:.1f}%"))
+                    with st.expander("Ver tabla de datos detallada (Confianza Institucional)"):
+                        tabla_pivot_conf = df_conf.pivot(index='Autoridad', columns='Año', values='Confianza')
+                        st.dataframe(tabla_pivot_conf.style.format("{:.1f}%"))
+                        st.info("Nota: La tasa se calcula como (Mucha + Algo de Confianza) / (Total de respuestas válidas 1-4). Se excluyen 'No sabe' y 'Blancos'.")
 
 except Exception as e:
     st.error(f"Error en la comparativa: {e}")
