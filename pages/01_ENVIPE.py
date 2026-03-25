@@ -393,16 +393,22 @@ try:
 
                         
                 
-            # ==============================================================================
-            # SECCIÓN 2: DESEMPEÑO INSTITUCIONAL (NUEVO BLOQUE)
-            # ==============================================================================
             elif subtema_envipe == "Desempeño Institucional":
-                st.header("🏢 Percepción de Acciones Municipales")
-                st.caption(f"Mostrando datos de: **{muni_sel}**")
-                st.markdown("""
-                    Esta sección analiza el porcentaje de la población que **sabe** o percibe 
-                    que su municipio ha realizado acciones específicas para mejorar la seguridad.
+                
+                # --- TÍTULO Y INTRODUCCIÓN GENERAL ---
+                st.title("🏢 Desempeño Institucional y Percepción de Autoridades")
+                
+                st.markdown(f"""
+                Esta sección analiza la relación entre la ciudadanía de **{muni_sel}** y las autoridades de seguridad pública y justicia. 
+                A través de los siguientes indicadores, se evalúa la legitimidad y eficiencia institucional:
+                
+                * **Acciones Municipales:** Evaluación de actividades preventivas y de vigilancia local.
+                * **Confianza e Identificación:** Nivel de credibilidad de las instituciones (Marina, Ejército, Policías).
+                * **Percepción de Corrupción:** Opinión sobre la integridad de los servidores públicos.
+                * **Efectividad:** Valoración del desempeño operativo de cada autoridad.
                 """)
+                
+                st.markdown("---")
 
                 dict_acciones = {
                     'AP5_1_01': 'Construcción de parques y canchas',
@@ -576,6 +582,242 @@ try:
                         tabla_pivot_conf = df_conf.pivot(index='Autoridad', columns='Año', values='Confianza')
                         st.dataframe(tabla_pivot_conf.style.format("{:.1f}%"))
                         st.info("Nota: La tasa se calcula como (Mucha + Algo de Confianza) / (Total de respuestas válidas 1-4). Se excluyen 'No sabe' y 'Blancos'.")
+
+                    # ==============================================================================
+                # SECCIÓN 7: PERCEPCIÓN DE CORRUPCIÓN EN LAS AUTORIDADES
+                # ==============================================================================
+                st.markdown("---")
+                st.header("📉 Percepción de Corrupción")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+                st.info("Porcentaje de la población que considera que la autoridad **SÍ** es corrupta, calculado sobre quienes identifican a la institución.")
+
+                lista_corrupcion = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    str_anio = str(anio)
+                    
+                    # Usamos el mapeador dinámico que ya definimos para Confianza
+                    dict_anio = MAPEO_AUTORIDADES.get(str_anio, MAPEO_AUTORIDADES["DEFAULT"])
+                    
+                    for col_conf, nombre_auth in dict_anio.items():
+                        # Transformamos AP5_4_XX (Confianza) a AP5_5_XX (Corrupción)
+                        col_corr = col_conf.replace('AP5_4_', 'AP5_5_')
+                        # Transformamos AP5_4_XX (Confianza) a AP5_3_XX (Identificación)
+                        col_ident = col_conf.replace('AP5_4_', 'AP5_3_')
+                        
+                        if col_corr in df_year.columns and col_ident in df_year.columns:
+                            # 1. Limpieza de datos
+                            df_year[col_corr] = pd.to_numeric(df_year[col_corr], errors='coerce')
+                            df_year[col_ident] = pd.to_numeric(df_year[col_ident], errors='coerce')
+                            
+                            # 2. FILTRO DE IDENTIFICACIÓN Y RESPUESTA VÁLIDA
+                            # Solo quienes conocen a la autoridad (1) y respondieron Sí (1) o No (2)
+                            df_validos = df_year[
+                                (df_year[col_ident] == 1) & 
+                                (df_year[col_corr].isin([1, 2, 9]))
+                            ]
+                            
+                            # 3. Denominador: Población que respondió Sí o No
+                            total_respuestas_exp = df_validos['FAC_ELE'].sum()
+                            
+                            # 4. Numerador: Solo los que respondieron "Sí es corrupta" (1)
+                            corruptos_exp = df_validos[df_validos[col_corr] == 1]['FAC_ELE'].sum()
+                            
+                            # 5. Cálculo del porcentaje
+                            porcentaje = (corruptos_exp / total_respuestas_exp) * 100 if total_respuestas_exp > 0 else 0
+                            
+                            lista_corrupcion.append({
+                                'Año': str_anio,
+                                'Autoridad': nombre_auth,
+                                'Percepción de Corrupción': porcentaje
+                            })
+
+                df_corr = pd.DataFrame(lista_corrupcion)
+
+                if not df_corr.empty:
+                    # Ordenar por el año más reciente (Autoridad percibida como más corrupta arriba)
+                    anio_max_corr = str(max(anios_sel))
+                    df_ref_corr = df_corr[df_corr['Año'] == anio_max_corr].sort_values(by='Percepción de Corrupción', ascending=True)
+                    orden_corrupcion = df_ref_corr['Autoridad'].tolist()
+
+                    st.subheader("📊 ¿Qué autoridades se perciben como más corruptas?")
+                    
+                    fig_corr = px.bar(
+                        df_corr,
+                        x='Percepción de Corrupción',
+                        y='Autoridad',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_map=colores_años,
+                        text=df_corr['Percepción de Corrupción'].apply(lambda x: f'{x:.1f}%'),
+                        labels={'Percepción de Corrupción': 'Población que percibe corrupción (%)', 'Autoridad': 'Institución'},
+                        category_orders={"Autoridad": orden_corrupcion}
+                    )
+
+                    fig_corr.update_layout(
+                        height=750, 
+                        margin=dict(l=220),
+                        xaxis_range=[0, 100]
+                    )
+                    fig_corr.update_traces(textposition='outside')
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                    
+                    with st.expander("Ver tabla de datos detallada (Percepción de Corrupción)"):
+                        tabla_pivot_corr = df_corr.pivot(index='Autoridad', columns='Año', values='Percepción de Corrupción')
+                        st.dataframe(tabla_pivot_corr.style.format("{:.1f}%"))
+                        st.warning("Nota: Este indicador mide la percepción subjetiva de la población, no necesariamente hechos delictivos comprobados.")
+
+                # ==============================================================================
+                # SECCIÓN 8: PERCEPCIÓN DE EFECTIVIDAD EN EL DESEMPEÑO
+                # ==============================================================================
+                st.markdown("---")
+                st.header("📈 Efectividad del Desempeño Institucional")
+                st.caption(f"Mostrando datos de: **{muni_sel}**")
+                st.info("Porcentaje de la población que considera el desempeño de la autoridad como **'Muy'** o **'Algo'** efectivo.")
+
+                lista_desempeno = []
+                for anio in anios_sel:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    str_anio = str(anio)
+                    
+                    # Usamos el mapeador dinámico definido para Confianza (AP5_4)
+                    dict_anio = MAPEO_AUTORIDADES.get(str_anio, MAPEO_AUTORIDADES["DEFAULT"])
+                    
+                    for col_conf, nombre_auth in dict_anio.items():
+                        # Transformamos AP5_4_XX (Confianza) a AP5_6_XX (Desempeño)
+                        col_des = col_conf.replace('AP5_4_', 'AP5_6_')
+                        # Transformamos AP5_4_XX (Confianza) a AP5_3_XX (Identificación)
+                        col_ident = col_conf.replace('AP5_4_', 'AP5_3_')
+                        
+                        if col_des in df_year.columns and col_ident in df_year.columns:
+                            # 1. Limpieza de datos
+                            df_year[col_des] = pd.to_numeric(df_year[col_des], errors='coerce')
+                            df_year[col_ident] = pd.to_numeric(df_year[col_ident], errors='coerce')
+                            
+                            # 2. FILTRO DE IDENTIFICACIÓN Y RESPUESTA VÁLIDA (1 al 4)
+                            # Excluimos 9 (No sabe) y vacíos para el denominador
+                            df_validos = df_year[
+                                (df_year[col_ident] == 1) & 
+                                (df_year[col_des].isin([1, 2, 3, 4]))
+                            ]
+                            
+                            # 3. Denominador: Población con respuesta válida
+                            total_validos_exp = df_validos['FAC_ELE'].sum()
+                            
+                            # 4. Numerador: Muy efectivo (1) + Algo efectivo (2)
+                            efectivo_exp = df_validos[df_validos[col_des].isin([1, 2])]['FAC_ELE'].sum()
+                            
+                            # 5. Cálculo
+                            porcentaje = (efectivo_exp / total_validos_exp) * 100 if total_validos_exp > 0 else 0
+                            
+                            lista_desempeno.append({
+                                'Año': str_anio,
+                                'Autoridad': nombre_auth,
+                                'Efectividad': porcentaje
+                            })
+
+                df_des = pd.DataFrame(lista_desempeno)
+
+                if not df_des.empty:
+                    # Ordenar por el año más reciente (Autoridad más efectiva arriba)
+                    anio_max_des = str(max(anios_sel))
+                    df_ref_des = df_des[df_des['Año'] == anio_max_des].sort_values(by='Efectividad', ascending=True)
+                    orden_desempeno = df_ref_des['Autoridad'].tolist()
+
+                    st.subheader("📊 Nivel de Efectividad Percibida por Institución")
+                    
+                    fig_des = px.bar(
+                        df_des,
+                        x='Efectividad',
+                        y='Autoridad',
+                        color='Año',
+                        barmode='group',
+                        orientation='h',
+                        color_discrete_map=colores_años,
+                        text=df_des['Efectividad'].apply(lambda x: f'{x:.1f}%'),
+                        labels={'Efectividad': 'Población que percibe desempeño efectivo (%)', 'Autoridad': 'Institución'},
+                        category_orders={"Autoridad": orden_desempeno}
+                    )
+
+                    fig_des.update_layout(
+                        height=750, 
+                        margin=dict(l=220),
+                        xaxis_range=[0, 100]
+                    )
+                    fig_des.update_traces(textposition='outside')
+                    st.plotly_chart(fig_des, use_container_width=True)
+                    
+                    with st.expander("Ver tabla de datos detallada (Efectividad del Desempeño)"):
+                        tabla_pivot_des = df_des.pivot(index='Autoridad', columns='Año', values='Efectividad')
+                        st.dataframe(tabla_pivot_des.style.format("{:.1f}%"))
+                        st.info("Nota: La efectividad se define como la suma de las categorías 'Muy efectivo' y 'Algo efectivo'.")
+
+                # ==============================================================================
+                # SECCIÓN 9: CONFIANZA EN CÁRCELES Y RECLUSORIOS
+                # ==============================================================================
+                st.markdown("---")
+                st.header("🏢 Confianza en el Sistema Penitenciario")
+                st.caption(f"Mostrando datos de: **{muni_sel}** (Series 2024-2025)")
+                st.info("Porcentaje de la población que manifiesta tener **'Mucha'** o **'Algo'** de confianza en las cárceles y reclusorios.")
+
+                lista_carceles = []
+                # Filtramos los años seleccionados para que solo procese 2024 y posteriores
+                anios_validos_carceles = [a for a in anios_sel if int(a) >= 2024]
+
+                for anio in anios_validos_carceles:
+                    df_year = df_filtrado[df_filtrado['ANIO_ESTADISTICO'] == anio].copy()
+                    str_anio = str(anio)
+                    
+                    if 'AP5_9' in df_year.columns:
+                        # 1. Limpieza y conversión
+                        df_year['AP5_9'] = pd.to_numeric(df_year['AP5_9'], errors='coerce')
+                        
+                        # 2. Filtro de respuestas válidas (1 al 4)
+                        df_validos = df_year[df_year['AP5_9'].isin([1, 2, 3, 4])]
+                        
+                        # 3. Denominador
+                        total_validos_exp = df_validos['FAC_ELE'].sum()
+                        
+                        # 4. Numerador (Mucha + Alguna)
+                        confianza_exp = df_validos[df_validos['AP5_9'].isin([1, 2])]['FAC_ELE'].sum()
+                        
+                        # 5. Cálculo
+                        porcentaje = (confianza_exp / total_validos_exp) * 100 if total_validos_exp > 0 else 0
+                        
+                        lista_carceles.append({
+                            'Año': str_anio,
+                            'Confianza': porcentaje
+                        })
+
+                df_carc = pd.DataFrame(lista_carceles)
+
+                if not df_carc.empty:
+                    st.subheader("📊 Evolución de la confianza en Cárceles (Datos disponibles)")
+                    
+                    fig_carc = px.bar(
+                        df_carc,
+                        x='Año',
+                        y='Confianza',
+                        color='Año',
+                        color_discrete_map=colores_años,
+                        text=df_carc['Confianza'].apply(lambda x: f'{x:.1f}%'),
+                        title=f"Confianza en Sistema Penitenciario - {muni_sel}",
+                        labels={'Confianza': '% Confianza', 'Año': 'Año'}
+                    )
+
+                    fig_carc.update_layout(
+                        yaxis_range=[0, 100], 
+                        showlegend=False,
+                        height=400 # Gráfica un poco más compacta al ser de menos años
+                    )
+                    fig_carc.update_traces(textposition='outside')
+                    st.plotly_chart(fig_carc, use_container_width=True)
+                    
+                    with st.expander("Ver detalle técnico (Cárceles)"):
+                        st.dataframe(df_carc.set_index('Año').T.style.format("{:.1f}%"))
+                else:
+                    st.warning("No hay datos disponibles para la variable de cárceles en los años seleccionados (requiere 2024 o 2025).")
 
 except Exception as e:
     st.error(f"Error en la comparativa: {e}")
