@@ -17,7 +17,7 @@ Este portal transforma los microdatos de INEGI en indicadores estratégicos.
 """)
 
 # Crear las columnas para las tarjetas
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     st.info("### 🛡️ ENVIPE")
@@ -46,6 +46,20 @@ with col2:
     if st.button("Analizar Gestión (ENCIG)"):
         # Asegúrate de que el nombre del archivo en 'pages' sea app_encig.py o 01_ENCIG.py
         st.switch_page("pages/app_encig.py")
+
+with col3:
+    st.warning("### 🏙️ ENSU") # Color diferente para resaltar
+    st.markdown("""
+    **Enfoque:** Percepción de Seguridad Urbana.
+    
+    **Utilidad para el funcionario:**
+    * Monitorear el sentimiento de inseguridad en espacios públicos (cajeros, transporte).
+    * Evaluar la efectividad percibida de los operativos policiales trimestralmente.
+    * Anticipar cambios en la conducta social ante la violencia urbana.
+    """)
+    if st.button("Analizar Percepción (ENSU)", key="btn_ensu"):
+        # Esta línea conecta con el nuevo archivo en la carpeta 'pages'
+        st.switch_page("pages/03_ENSU.py")
 
 st.markdown("---")
 st.caption("Gobierno del Estado de Morelos | Unidad de Análisis y Estadística")
