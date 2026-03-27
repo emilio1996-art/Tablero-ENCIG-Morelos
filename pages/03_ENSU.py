@@ -4,454 +4,336 @@ import plotly.express as px
 import os
 import numpy as np
 
-# 1. Configuración de página
+# --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="ENSU - Morelos", layout="wide")
 
-# 2. Encabezado
+# Inyectamos CSS para ocultar menús de Streamlit y dar aspecto profesional
+st.markdown("<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
+
 st.title("🏙️ Percepción de Seguridad Pública Urbana (ENSU)")
 st.caption("Fuente: Microdatos de INEGI - Análisis específico para el Estado de Morelos")
 st.markdown("---")
+
+# --- 2. FUNCIONES DE APOYO (Lógica de Negocio) ---
 
 def limpiar_columnas_inegi(df_input, lista_columnas):
     df_result = df_input.copy()
     for col in lista_columnas:
         if col in df_result.columns:
-            # Normalización total: a string, quitar .0 y espacios
+            # Convertimos a string, quitamos el .0 y espacios
             df_result[col] = df_result[col].astype(str).str.replace('.0', '', regex=False).str.strip()
-            df_result[col] = df_result[col].replace('nan', np.nan)
+            # Tomamos solo el primer carácter para normalizar (evita '1.0' o '1 ')
+            df_result[col] = df_result[col].str.get(0)
     return df_result
 
-# 3. Carga de Datos (Usando el Parquet generado en la consola)
 @st.cache_data
 def cargar_data():
-    # Construimos la ruta dinámica para que funcione en cualquier PC
     ruta_archivo = os.path.join("data", "Master_ENSU_Morelos.parquet")
-    
     try:
-        if os.path.exists(ruta_archivo):
-            df = pd.read_parquet(ruta_archivo)
-            return df
-        else:
-            st.error(f"❌ No se encontró el archivo en: {ruta_archivo}")
-            return None
+        with st.spinner("Actualizando indicadores estratégicos..."):
+            return pd.read_parquet(ruta_archivo) if os.path.exists(ruta_archivo) else None
     except Exception as e:
-        st.error(f"Error al leer el archivo Parquet: {e}")
+        st.error(f"Error al leer el archivo: {e}")
         return None
 
-df = cargar_data()
+def crear_grafica_barras(df_plot, x_col, y_col, color_col, titulo, paleta):
+    """Función maestra para mantener consistencia visual en todas las gráficas de barras."""
+    fig = px.bar(
+        df_plot, x=x_col, y=y_col, color=color_col,
+        barmode='group', orientation='h',
+        text=df_plot[x_col].apply(lambda x: f'{x:.1f}%'),
+        title=titulo, color_discrete_sequence=paleta
+    )
+    fig.update_layout(
+        xaxis_range=[0, 110], height=500,
+        yaxis={'categoryorder': 'total ascending'},
+        legend_title="Periodo", margin=dict(l=20, r=20, t=40, b=20)
+    )
+    fig.update_traces(textposition='outside', textfont_size=10)
+    return fig
 
-df_raw = cargar_data() # Cargamos los datos originales
+# --- 3. PROCESAMIENTO DE DATOS ---
+df_raw = cargar_data()
 
 if df_raw is not None:
-    # Listamos TODAS las columnas que usaremos en cualquier pestaña que sean códigos (1, 2, 3...)
     cols_control = [
         'BP1_1', 'BP1_3', 'BP1_2_01', 'BP1_2_02', 'BP1_2_03', 'BP1_2_04', 
         'BP1_2_05', 'BP1_2_06', 'BP1_2_07', 'BP1_2_08', 'BP1_2_09', 'BP1_2_10', 
         'BP1_2_11', 'BP1_2_12', 'BP1_4_1', 'BP1_4_2', 'BP1_4_3', 'BP1_4_4', 
         'BP1_4_5', 'BP1_4_6', 'BP1_4_7', 'BP1_4_8', 'BP1_5_1', 'BP1_5_2', 
-        'BP1_5_3', 'BP1_5_4', 'BP1_5_5'
+        'BP1_5_3', 'BP1_5_4', 'BP1_5_5', 'SEXO', 'BP4_1_1', 'BP4_1_2', 'BP4_1_3', 'BP4_1_4', 'BP4_1_5', 
+    'BP4_1_6', 'BP4_1_7', 'BP4_1_8', 'BP4_1_9', 'SEXO'
     ]
-    
-    # Aquí creamos el 'df' final que usará todo tu script
     df = limpiar_columnas_inegi(df_raw, cols_control)
 
-if df is not None:
-    # 4. Filtros Globales en Sidebar
+    # Sidebar: Filtros
     st.sidebar.header("📅 Filtros de Tiempo")
-    
-    # Filtro de Año
     anios = sorted(df['ANIO'].unique(), reverse=True)
-    anio_sel = st.sidebar.multiselect("Seleccione Año(s)", options=anios, default=anios[0])
+    anio_sel = st.sidebar.multiselect("Año(s)", options=anios, default=anios[0])
     
-    # --- NUEVO FILTRO DE TRIMESTRE ---
-    # Solo mostramos los trimestres que existen en los años seleccionados
     trims_disponibles = sorted(df[df['ANIO'].isin(anio_sel)]['TRIMESTRE'].unique())
-    trim_sel = st.sidebar.multiselect(
-        "Seleccione Trimestre(s)", 
-        options=trims_disponibles, 
-        default=trims_disponibles # Por defecto todos los del año
-    )
+    trim_sel = st.sidebar.multiselect("Trimestre(s)", options=trims_disponibles, default=trims_disponibles)
     
     st.sidebar.markdown("---")
     st.sidebar.header("📍 Ubicación")
     municipios = sorted(df['NOM_MUN'].unique())
     mun_sel = st.sidebar.multiselect("Municipio/Ciudad", options=municipios, default=municipios)
 
-    # ACTUALIZACIÓN DE LA LÓGICA DE FILTRADO
-    # Ahora el df_filtrado considera Año, Trimestre y Municipio
-    df_filtrado = df[
-        (df['ANIO'].isin(anio_sel)) & 
-        (df['TRIMESTRE'].isin(trim_sel)) & 
-        (df['NOM_MUN'].isin(mun_sel))
-    ]
-    
-    # 1. Lógica para detectar el último trimestre del último año
-    if df_filtrado is not None and not df_filtrado.empty:
-        # 1. Identificar el último periodo disponible
+    df_filtrado = df[(df['ANIO'].isin(anio_sel)) & (df['TRIMESTRE'].isin(trim_sel)) & (df['NOM_MUN'].isin(mun_sel))]
+
+    # --- 4. DASHBOARD: KPIs SUPERIORES ---
+    if not df_filtrado.empty:
         map_orden = {"1er Trim": 1, "2do Trim": 2, "3er Trim": 3, "4to Trim": 4}
-        df_temp_reciente = df_filtrado.copy()
-        df_temp_reciente['orden'] = df_temp_reciente['TRIMESTRE'].map(map_orden)
+        df_temp = df_filtrado.copy()
+        df_temp['orden'] = df_temp['TRIMESTRE'].map(map_orden)
         
-        # Obtenemos el registro más reciente
-        ultimo_anio = df_temp_reciente['ANIO'].max()
-        ultimo_trim = df_temp_reciente[df_temp_reciente['ANIO'] == ultimo_anio].sort_values('orden')['TRIMESTRE'].iloc[-1]
+        ultimo_anio = df_temp['ANIO'].max()
+        ultimo_trim = df_temp[df_temp['ANIO'] == ultimo_anio].sort_values('orden')['TRIMESTRE'].iloc[-1]
+        df_reciente = df_temp[(df_temp['ANIO'] == ultimo_anio) & (df_temp['TRIMESTRE'] == ultimo_trim)]
         
-        # 2. Filtrar y limpiar (Forzamos a STRING para evitar el 0.0%)
-        df_reciente = df_temp_reciente[(df_temp_reciente['ANIO'] == ultimo_anio) & 
-                                       (df_temp_reciente['TRIMESTRE'] == ultimo_trim)].copy()
-        
-        # LIMPIEZA CRUCIAL: Convertir a string y quitar posibles decimales .0
-        df_reciente['BP1_3'] = df_reciente['BP1_3'].astype(str).str.replace('.0', '', regex=False).str.strip()
-        
-        # 3. Cálculo con FAC_SEL
         pob_total_exp = df_reciente['FAC_SEL'].sum()
         
-        # Filtramos categorías de pesimismo (3 y 4)
-        pob_igual_mal = df_reciente[df_reciente['BP1_3'] == '3']['FAC_SEL'].sum()
-        pob_empeorara = df_reciente[df_reciente['BP1_3'] == '4']['FAC_SEL'].sum()
-        pob_mejorara = df_reciente[df_reciente['BP1_3'] == '1']['FAC_SEL'].sum()
-
         if pob_total_exp > 0:
-            pct_igual_mal = (pob_igual_mal / pob_total_exp) * 100
-            pct_empeorara = (pob_empeorara / pob_total_exp) * 100
-            pct_mejorara = (pob_mejorara / pob_total_exp) * 100
-        else:
-            pct_igual_mal = pct_empeorara = pct_mejorara = 0.0
+            pct_mal = (df_reciente[df_reciente['BP1_3'] == '3']['FAC_SEL'].sum() / pob_total_exp) * 100
+            pct_peor = (df_reciente[df_reciente['BP1_3'] == '4']['FAC_SEL'].sum() / pob_total_exp) * 100
+            pct_mejor = (df_reciente[df_reciente['BP1_3'] == '1']['FAC_SEL'].sum() / pob_total_exp) * 100
+            
+            st.markdown(f"#### 📊 Expectativas de Seguridad (Próximos 12 meses)")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Seguirá igual de MAL", f"{pct_mal:.1f}%")
+            k2.metric("EMPEORARÁ", f"{pct_peor:.1f}%", delta=f"{(pct_mal + pct_peor):.1f}% Negativo", delta_color="inverse")
+            k3.metric("MEJORARÁ", f"{pct_mejor:.1f}%")
 
-        # 4. Mostrar Tarjetas
-        st.markdown(f"#### 📊 Expectativas sobre las condiciones de seguridad pública para los próximos 12 meses ")
-        k1, k2, k3 = st.columns(3)
-        
-        with k1:
-            st.metric("Seguirá igual de MAL", f"{pct_igual_mal:.1f}%")
-        with k2:
-            st.metric("EMPEORARÁ", f"{pct_empeorara:.1f}%", delta=f"{(pct_igual_mal + pct_empeorara):.1f}% Total Negativo", delta_color="inverse")
-        with k3:
-            st.metric("MEJORARÁ", f"{pct_mejorara:.1f}%")
+    # --- 5. SECCIONES (TABS) ---
+    tab1, tab2, tab3, tab4 = st.tabs(["🛡️ Percepción", "🏗️ Desempeño", "⚠️ Acoso", "🤝 Confianza"])
 
-    # 5. DEFINICIÓN DE SECCIONES (TABS)
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🛡️ Percepción de Seguridad", 
-        "🏗️ Desempeño Gubernamental", 
-        "⚠️ Acoso y Violencia",
-        "🤝 Confianza Pública"
-    ])
-    
-    # --- SECCIÓN 1: Percepción Sobre Seguridad Pública ---
     with tab1:
-        st.header("Percepción Sobre Seguridad Pública")
-        
-        if df_filtrado is not None and not df_filtrado.empty:
-            st.subheader("⚠️ Percepción General de Inseguridad en la Ciudad")
+        if not df_filtrado.empty:
+            # Gráfica de Evolución (Líneas)
+            df_g1 = df_filtrado.groupby(['ANIO', 'TRIMESTRE', 'BP1_1'])['FAC_SEL'].sum().reset_index()
+            df_g1['Total'] = df_g1.groupby(['ANIO', 'TRIMESTRE'])['FAC_SEL'].transform('sum')
+            df_g1['Porcentaje'] = (df_g1['FAC_SEL'] / df_g1['Total']) * 100
             
-            # 1. Preparación de datos con FAC_SEL
-            df_g1 = df_filtrado[['ANIO', 'TRIMESTRE', 'BP1_1', 'FAC_SEL']].copy()
+            map_seg = {'1': '1 Seguro', '2': '2 Inseguro'}
+            df_g1['Respuesta'] = df_g1['BP1_1'].map(map_seg)
             
-            # Aseguramos formato texto y limpieza
-            df_g1['BP1_1'] = df_g1['BP1_1'].astype(str).str.strip()
-            
-            # Mapeo oficial
-            map_seguridad = {
-                '1': '1 Seguro',
-                '2': '2 Inseguro',
-                '9': '9 No sabe/No responde'
-            }
-            df_g1['Respuesta'] = df_g1['BP1_1'].map(map_seguridad)
-            
-            # 2. Agrupación y Cálculo de Porcentajes usando FAC_SEL
-            # Sumamos el factor de selección por grupo
-            df_grouped = df_g1.groupby(['ANIO', 'TRIMESTRE', 'Respuesta'])['FAC_SEL'].sum().reset_index()
-            
-            # Calculamos el total expandido por trimestre
-            df_grouped['Total_Pob_Trim'] = df_grouped.groupby(['ANIO', 'TRIMESTRE'])['FAC_SEL'].transform('sum')
-            
-            # Sacamos el porcentaje real
-            df_grouped['Porcentaje'] = (df_grouped['FAC_SEL'] / df_grouped['Total_Pob_Trim']) * 100
-            
-            # Orden cronológico
-            map_orden_trim = {"1er Trim": 1, "2do Trim": 2, "3er Trim": 3, "4to Trim": 4}
-            df_grouped['orden'] = df_grouped['TRIMESTRE'].map(map_orden_trim)
-            df_grouped = df_grouped.sort_values(by=['ANIO', 'orden'])
-            
-            # 3. Gráfica de Líneas con Plotly
-            fig1 = px.line(
-                df_grouped,
-                x='TRIMESTRE',
-                y='Porcentaje',
-                color='Respuesta',
-                markers=True,
-                title="Evolución de la Percepción de Seguridad (Población 18+)",
-                labels={'Porcentaje': 'Porcentaje de la Población (%)'},
-                color_discrete_map={
-                    '1 Seguro': '#4CAF50',
-                    '2 Inseguro': '#F44336',
-                    '9 No sabe/No responde': '#9E9E9E'
-                }
-            )
-            
-            fig1.update_layout(yaxis_range=[0, 100], hovermode="x unified")
+            fig1 = px.line(df_g1.sort_values(['ANIO', 'TRIMESTRE']), x='TRIMESTRE', y='Porcentaje', color='Respuesta', 
+                           markers=True, title="Evolución de la Percepción de Seguridad",
+                           color_discrete_map={'1 Seguro': '#4CAF50', '2 Inseguro': '#F44336', '9 No sabe': '#9E9E9E'})
             st.plotly_chart(fig1, use_container_width=True)
-            
-            # Métrica del dato más reciente
-            try:
-                # Filtramos solo la categoría 'Inseguro' del periodo más reciente
-                ultimo_dato = df_grouped[df_grouped['Respuesta'] == '2 Inseguro'].iloc[-1]
-                st.metric(
-                    label=f"Índice de Inseguridad Percibida ({ultimo_dato['TRIMESTRE']} {ultimo_dato['ANIO']})",
-                    value=f"{ultimo_dato['Porcentaje']:.1f}%",
-                    delta_color="inverse", # Rojo si sube, verde si baja (opcional si comparamos con el anterior)
-                    help="Representa a la población expandida con el factor FAC_SEL."
-                )
-            except:
-                pass
 
-            st.markdown("---")
-            st.subheader("📍 ¿En qué lugares se siente más inseguro?")
-            
-            # 1. Diccionario de Lugares
-            dict_lugares = {
-                'BP1_2_01': 'Casa', 'BP1_2_02': 'Trabajo', 'BP1_2_03': 'Calle',
-                'BP1_2_04': 'Escuela', 'BP1_2_05': 'Mercado', 'BP1_2_06': 'Centro Comercial',
-                'BP1_2_07': 'Banco', 'BP1_2_08': 'Cajero Automático', 'BP1_2_09': 'Transporte Público',
-                'BP1_2_10': 'Automóvil', 'BP1_2_11': 'Carretera', 'BP1_2_12': 'Parque'
+            # Diccionarios de Variables
+            secciones = {
+                "📍 Inseguridad por Lugares": {
+                    "dict": {'BP1_2_01': 'Casa', 'BP1_2_02': 'Trabajo', 'BP1_2_03': 'Calle', 'BP1_2_04': 'Escuela', 'BP1_2_05': 'Mercado', 'BP1_2_06': 'Centro Comercial','BP1_2_07': 'Banco', 'BP1_2_08': 'Cajero', 'BP1_2_09': 'Transporte', 'BP1_2_10': 'Automóvil', 'BP1_2_11': 'Carretera', 'BP1_2_12': 'Parque'},
+                    "paleta": px.colors.sequential.Reds_r, "filtro": '2'
+                },
+                "🔊 Conductas Antisociales": {
+                    "dict": {'BP1_4_1': 'Vandalismo', 'BP1_4_2': 'Alcohol en calle', 'BP1_4_3': 'Robos', 'BP1_4_4': 'Bandas violentas', 'BP1_4_5': 'Venta o consumo de drogas', 'BP1_4_6': 'Disparos'},
+                    "paleta": px.colors.qualitative.Bold, "filtro": '1'
+                },
+                "🚶 Cambio de Hábitos": {
+                    "dict": {'BP1_5_1': 'Llevar cosas valor', 'BP1_5_2': 'Caminar noche', 'BP1_5_3': 'Visitar parientes', 'BP1_5_4': 'Menores solos', 'BP1_5_5': 'Otro'},
+                    "paleta": px.colors.qualitative.Safe, "filtro": '1'
+                }
             }
 
-            # 2. Procesamiento (dentro del mismo nivel de indentación)
-            lista_resultados = []
-            for col, nombre in dict_lugares.items():
-                if col in df_filtrado.columns:
-                    # Convertimos la columna a string y quitamos espacios para asegurar la comparación
-                    df_temp_col = df_filtrado[col].astype(str).str.strip()
-                    
-                    # Filtro de respuestas válidas (1 y 2) usando el índice del df original para mantener FAC_SEL
-                    indices_validos = df_temp_col[df_temp_col.isin(['1', '2', '3', '9'])].index
-                    
-                    if not indices_validos.empty:
-                        # Población que se siente insegura (Respuesta '2')
-                        mask_inseguro = df_temp_col.loc[indices_validos] == '2'
-                        pob_insegura = df_filtrado.loc[indices_validos][mask_inseguro]['FAC_SEL'].sum()
-                        
-                        # Población total que frecuenta el lugar (1 + 2)
-                        pob_total = df_filtrado.loc[indices_validos]['FAC_SEL'].sum()
-                        
-                        if pob_total > 0:
-                            lista_resultados.append({
-                                'Lugar': nombre, 
-                                'Porcentaje': (pob_insegura / pob_total) * 100
-                            })
-
-            # Solo dibujamos si hay resultados
-            lista_comparativa = []
-            
-            # Iteramos por cada lugar y por cada trimestre presente en el filtro
-            for col, nombre in dict_lugares.items():
-                if col in df_filtrado.columns:
-                    for trim in trim_sel: # Usamos los trimestres seleccionados en el sidebar
-                        df_trim = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
-                        
-                        # Limpieza y filtrado de respuestas válidas (1 y 2)
-                        df_trim[col] = df_trim[col].astype(str).str.strip()
-                        df_valido = df_trim[df_trim[col].isin(['1', '2'])]
-                        
-                        if not df_valido.empty:
-                            pob_insegura = df_valido[df_valido[col] == '2']['FAC_SEL'].sum()
-                            pob_total = df_valido['FAC_SEL'].sum()
-                            
-                            lista_comparativa.append({
-                                'Lugar': nombre,
-                                'Trimestre': trim,
-                                'Porcentaje': (pob_insegura / pob_total) * 100
-                            })
-
-            if lista_comparativa:
-                df_comp = pd.DataFrame(lista_comparativa)
+            for titulo, config in secciones.items():
+                st.markdown("---")
+                st.subheader(titulo)
+                res_list = []
+                for col, nom in config["dict"].items():
+                    if col in df_filtrado.columns:
+                        for trim in trim_sel:
+                            df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim]
+                            df_v = df_t[df_t[col].isin(['1', '2'])]
+                            if not df_v.empty:
+                                si = df_v[df_v[col] == config["filtro"]]['FAC_SEL'].sum()
+                                tot = df_v['FAC_SEL'].sum()
+                                res_list.append({titulo.split()[-1]: nom, 'Trimestre': trim, 'Porcentaje': (si/tot)*100})
                 
-                # Creamos la gráfica de barras agrupadas
-                fig_comp = px.bar(
-                    df_comp,
-                    x='Porcentaje',
-                    y='Lugar',
-                    color='Trimestre',
-                    barmode='group', # Esto hace que las barras se pongan una al lado de otra
-                    orientation='h',
-                    text=df_comp['Porcentaje'].apply(lambda x: f'{x:.0f}%'),
-                    title="Inseguridad Percibida: Comparativa entre Trimestres",
-                    # Usamos una paleta secuencial para que los trimestres se vean relacionados
-                    color_discrete_sequence=px.colors.sequential.Reds_r 
-                )
-
-                fig_comp.update_layout(
-                    xaxis_range=[0, 110],
-                    height=700, # Aumentamos el alto para que quepan bien los grupos de barras
-                    yaxis={'categoryorder':'total ascending'}, # Ordena por el lugar más inseguro en promedio
-                    legend_title="Periodo"
-                )
+                if res_list:
+                    df_p = pd.DataFrame(res_list)
+                    st.plotly_chart(crear_grafica_barras(df_p, 'Porcentaje', titulo.split()[-1], 'Trimestre', titulo, config["paleta"]), use_container_width=True)
                 
-                fig_comp.update_traces(textposition='outside', textfont_size=10)
-                
-                st.plotly_chart(fig_comp, use_container_width=True)
-            else:
-                st.warning("No hay datos suficientes para generar la comparativa trimestral.")
+                if "Hábitos" in titulo:
+                    st.info("**Nota:** Los cambios en hábitos son indicadores clave de la fractura social en Morelos.")
 
-            st.markdown("---")
-        st.subheader("🔊 Incidencias y Conductas Antisociales en el Entorno")
-        st.caption("Porcentaje de la población que ha presenciado estas situaciones en los alrededores de su vivienda.")
+    # --- SECCIÓN 2: Desempeño y Problemas de la Ciudad ---
+    with tab2:
+        st.header("🏙️ Problemática Urbana")
+        st.info("Porcentaje de la población que identifica los siguientes temas como los problemas más importantes.")
+
+        dict_problemas = {
+            'BP3_1_01': 'Fallas en suministro de agua',
+            'BP3_1_02': 'Deficiencias en red de drenaje',
+            'BP3_1_03': 'Colaredas tapadas',
+            'BP3_1_04': 'Falta de tratamiento de aguas residuales',
+            'BP3_1_05': 'Alumbrado público deficiente',
+            'BP3_1_06': 'Ineficiencia en servicio de recolección de basura',
+            'BP3_1_07': 'Mercados en mal estado',
+            'BP3_1_08': 'Embotellamientos frecuentes',
+            'BP3_1_09': 'Problemas de salud por mal manejo de rastros',
+            'BP3_1_10': 'Baches en calles/avenidas',
+            'BP3_1_11': 'Parques y jardines descuidados',
+            'BP3_1_12': 'Delincuencia (robos/extorsión)',
+            'BP3_1_13': 'Transporte público deficiente',
+            'BP3_1_14': 'Hospitales saturados',
+        }
+
+        lista_problemas = []
 
         if not df_filtrado.empty:
-            # 1. Definición del catálogo de conductas según INEGI
-            dict_conductas = {
-                'BP1_4_1': 'Vandalismo',
-                'BP1_4_2': 'Consumo de alcohol en las calles',
-                'BP1_4_3': 'Robos o asaltos',
-                'BP1_4_4': 'Bandas violentas',
-                'BP1_4_5': 'Venta o consumo de drogas',
-                'BP1_4_6': 'Disparos frecuentes',
-                'BP1_4_7': 'Huiachicol',
-                'BP1_4_8': 'Tomas irregulares de luz'
-            }
-
-            lista_conductas = []
-
-            # 2. Procesamiento masivo
-            for col, nombre in dict_conductas.items():
+            for col, nombre in dict_problemas.items():
                 if col in df_filtrado.columns:
-                    # Iteramos por los trimestres seleccionados para la comparativa
                     for trim in trim_sel:
                         df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
                         
-                        # Limpieza de la columna actual
-                        df_t[col] = df_t[col].astype(str).str.replace('.0', '', regex=False).str.strip()
+                        # Limpieza de datos (Soporta 1, 1.0, "1")
+                        respuestas = df_t[col].astype(str).str.replace('.0', '', regex=False).str.strip()
                         
-                        # Denominador: quienes respondieron Sí (1) o No (2)
-                        df_val = df_t[df_t[col].isin(['1', '2'])]
+                        si = df_t[respuestas == '1']['FAC_SEL'].sum()
+                        tot = df_t['FAC_SEL'].sum()
                         
-                        if not df_val.empty:
-                            pob_si = df_val[df_val[col] == '1']['FAC_SEL'].sum()
-                            pob_total_c = df_val['FAC_SEL'].sum()
-                            
-                            lista_conductas.append({
-                                'Conducta': nombre,
+                        if tot > 0:
+                            lista_problemas.append({
+                                'Problema': nombre,
                                 'Trimestre': trim,
-                                'Porcentaje': (pob_si / pob_total_c) * 100
+                                'Porcentaje': (si / tot) * 100
                             })
 
-            if lista_conductas:
-                df_c = pd.DataFrame(lista_conductas)
+            if lista_problemas:
+                df_p_prob = pd.DataFrame(lista_problemas)
                 
-                # 3. Gráfica de Barras Agrupadas Horizontales
-                # Usamos horizontales porque los nombres de las conductas son largos
-                fig_conductas = px.bar(
-                    df_c,
+                # --- LÓGICA DE ORDENAMIENTO DE TRIMESTRES ---
+                # Definimos el orden deseado para la leyenda y las barras
+                orden_trimestres = ['1er Trim', '2do Trim', '3er Trim', '4to Trim']
+                # Convertimos a categoría con el orden específico
+                df_p_prob['Trimestre'] = pd.Categorical(df_p_prob['Trimestre'], categories=orden_trimestres, ordered=True)
+                
+                # Ordenamos el DF: Primero por Problema (alfabético/valor) y luego por Trimestre
+                # Nota: Plotly dibuja de abajo hacia arriba según el orden del DF
+                df_p_prob = df_p_prob.sort_values(by=['Problema', 'Trimestre'], ascending=[True, False])
+
+                fig_prob = px.bar(
+                    df_p_prob,
                     x='Porcentaje',
-                    y='Conducta',
+                    y='Problema',
                     color='Trimestre',
                     barmode='group',
                     orientation='h',
-                    text=df_c['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                    title="Atestiguación de Conductas Antisociales por Trimestre",
-                    color_discrete_sequence=px.colors.qualitative.Bold
+                    text_auto='.1f',
+                    title="Principales Problemas Identificados en Morelos",
+                    # Usamos una paleta secuencial para que se note la evolución temporal
+                    color_discrete_sequence=px.colors.sequential.Blues_r, 
+                    height=800,
+                    # Forzamos a que la categoría respete el orden definido
+                    category_orders={"Trimestre": orden_trimestres}
                 )
 
-                fig_conductas.update_layout(
-                    xaxis_range=[0, 110],
-                    height=600,
-                    yaxis={'categoryorder':'total ascending'},
-                    legend_title="Periodo"
+                fig_prob.update_layout(
+                    xaxis_title="Porcentaje de la Población (%)",
+                    yaxis_title=None,
+                    legend_title="Periodo",
+                    # 'total ascending' asegura que el problema más grave esté arriba
+                    yaxis={'categoryorder': 'total ascending'} 
                 )
-                
-                fig_conductas.update_traces(textposition='outside', textfont_size=10)
-                
-                st.plotly_chart(fig_conductas, use_container_width=True)
+
+                st.plotly_chart(fig_prob, use_container_width=True)
             else:
-                st.warning("No se encontraron datos para las conductas seleccionadas.")
-
-            # --- SECCIÓN: CAMBIO DE HÁBITOS POR TEMOR AL DELITO (BP1_5_1 a BP1_5_5) ---
-        st.markdown("---")
-        st.subheader("🚶 Cambio de Hábitos por Inseguridad")
-        
-        if df_filtrado is not None and not df_filtrado.empty:
-            dict_habitos = {
-                'BP1_5_1': 'Llevar cosas de valor',
-                'BP1_5_2': 'Caminar en los alrederores despúes de las 8 PM',
-                'BP1_5_3': 'Visitar parientes/amigos',
-                'BP1_5_4': 'Menores salgan de casa',
-                'BP1_5_5': 'Otro'
-            }
-
-            lista_habitos = []
-
-            for col, nombre in dict_habitos.items():
-                if col in df_filtrado.columns:
-                    for trim in trim_sel:
-                        # 1. Filtramos por trimestre
-                        df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
-                        
-                        if not df_t.empty:
-                            # 2. LIMPIEZA AGRESIVA IN-SITU (Esto asegura el dibujo)
-                            # Convertimos a string y forzamos que sea solo el primer carácter 
-                            # (por si acaso hay '1.0' o espacios)
-                            serie_limpia = df_t[col].astype(str).str.strip().str.get(0)
-                            
-                            # 3. Calculamos usando la serie limpia
-                            pob_si = df_t[serie_limpia == '1']['FAC_SEL'].sum()
-                            pob_total_h = df_t[serie_limpia.isin(['1', '2'])]['FAC_SEL'].sum()
-                            
-                            if pob_total_h > 0:
-                                lista_habitos.append({
-                                    'Hábito': nombre,
-                                    'Trimestre': trim,
-                                    'Porcentaje': (pob_si / pob_total_h) * 100
-                                })
-
-            if lista_habitos:
-                df_h = pd.DataFrame(lista_habitos)
-                fig_habitos = px.bar(
-                    df_h, x='Porcentaje', y='Hábito', color='Trimestre',
-                    barmode='group', orientation='h',
-                    text=df_h['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
-                    color_discrete_sequence=px.colors.qualitative.Safe
-                )
-                fig_habitos.update_layout(xaxis_range=[0, 110], height=450)
-                st.plotly_chart(fig_habitos, use_container_width=True)
-                
-                # Nota interpretativa
-                st.info("""**Nota de análisis:** Los cambios en hábitos como 'Caminar de noche' o 'Permitir que menores salgan' suelen ser los indicadores más sensibles 
-                        al aumento de la percepción de inseguridad en Morelos.""")
-            else:
-                st.warning("No hay datos suficientes para las variables de cambio de hábitos.")
-
-    # --- SECCIÓN 2: Desempeño Gubernamental ---
-    with tab2:
-        st.header("Desempeño Gubernamental")
-        st.info("Evaluación de la efectividad del gobierno para resolver problemas en la ciudad.")
-
+                st.warning("No se encontraron registros afirmativos ('1') para estos problemas.")
+        else:
+            st.error("No hay datos cargados en el DataFrame filtrado.")
+                    
     # --- SECCIÓN 3: Acoso y Violencia ---
     with tab3:
-        st.header("Acoso y Violencia")
-        st.info("Prevalencia de situaciones de acoso personal y violencia en el entorno urbano.")
+        st.header("⚠️ Acoso y Violencia Sexual")
+        st.info("Nota: Este módulo se aplica únicamente durante el 2do y 4to trimestre de cada año.")
 
-    # --- SECCIÓN 4: Confianza en Administración Pública ---
-    with tab4:
-        st.header("Confianza en la Administración Pública")
-        st.info("Nivel de confianza en las diversas instituciones de seguridad (Marina, Sedena, Policía).")
+        # 1. Filtro específico por Sexo (Default ambos para comparativa)
+        sexo_opciones = {1: "Hombre", 2: "Mujer"}
+        
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            sexo_sel = st.multiselect(
+                "Filtrar por sexo:",
+                options=[1, 2],
+                format_func=lambda x: sexo_opciones[x],
+                default=[1, 2], # Aparecen ambos por default
+                key="filter_sexo_acoso"
+            )
 
-    # --- NOTA METODOLÓGICA (Alineada con los TABS) ---
-    st.markdown("---") # Una línea divisoria antes del expander
+        # 2. Diccionario de variables
+        dict_acoso = {
+            'BP4_1_1': 'Piropos u ofensas',
+            'BP4_1_2': 'Intento de Coerción sexual',
+            'BP4_1_3': 'Dinero por actos sexuales',
+            'BP4_1_4': 'Acoso sexual por medio de redes',
+            'BP4_1_5': 'Violación',
+            'BP4_1_6': 'Exhibicionismo',
+            'BP4_1_7': 'Manoseos o toqueteos',
+            'BP4_1_8': 'Envío de fotos o contenido sexual por redes',
+            'BP4_1_9': 'Obligar a observar actos sexuales'
+        }
+
+        # Conversión de filtro a string para el DataFrame
+        sexo_sel_str = [str(s) for s in sexo_sel]
+        df_acoso = df_filtrado[df_filtrado['SEXO'].isin(sexo_sel_str)]
+
+        lista_acoso = []
+
+        if not df_acoso.empty:
+            trims_validos = [t for t in trim_sel if "2do" in str(t) or "4to" in str(t)]
+            
+            for col, nombre in dict_acoso.items():
+                if col in df_acoso.columns:
+                    for trim in trims_validos:
+                        # Iteramos por cada sexo seleccionado para tener la separación en la tabla final
+                        for s_val in sexo_sel_str:
+                            df_ts = df_acoso[(df_acoso['TRIMESTRE'] == trim) & (df_acoso['SEXO'] == s_val)]
+                            df_v = df_ts[df_ts[col].isin(['1', '2'])]
+                            
+                            if not df_v.empty:
+                                si = df_v[df_v[col] == '1']['FAC_SEL'].sum()
+                                tot = df_v['FAC_SEL'].sum()
+                                
+                                if tot > 0:
+                                    lista_acoso.append({
+                                        'Situación': nombre,
+                                        'Trimestre': trim,
+                                        'Sexo': sexo_opciones[int(s_val)],
+                                        'Porcentaje': (si / tot) * 100
+                                    })
+
+            if lista_acoso:
+                df_p_acoso = pd.DataFrame(lista_acoso)
+                
+                # CREACIÓN DE GRÁFICA COMPARATIVA
+                # Usamos color='Sexo' para crear las columnas paralelas y barmode='group'
+                fig_acoso = px.bar(
+                    df_p_acoso,
+                    x='Situación',
+                    y='Porcentaje',
+                    color='Sexo',
+                    facet_row='Trimestre', # Esto separa 2do y 4to trimestre en filas para no amontonar
+                    barmode='group',
+                    text_auto='.1f',
+                    title="Comparativa de Acoso por Sexo y Trimestre",
+                    color_discrete_map={'Hombre': '#2E59A7', 'Mujer': '#8B42BF'}, # Azul vs Púrpura
+                    height=800
+                )
+                
+                fig_acoso.update_layout(xaxis_tickangle=-45)
+                st.plotly_chart(fig_acoso, use_container_width=True)
+            else:
+                st.warning("No hay datos para los trimestres pares seleccionados.")
+        else:
+            st.warning("Por favor, selecciona al menos un sexo en el filtro.")
+
+    # --- 6. NOTA METODOLÓGICA ---
+    st.markdown("---")
     with st.expander("📝 Nota Metodológica y Precisión Estadística"):
-        st.markdown(f"""
-        **¿Por qué existen variaciones respecto a los tabulados oficiales?**
-        
-        Los resultados presentados en este tablero se calculan mediante el procesamiento directo de los microdatos de la **ENSU**, aplicando el factor de expansión `FAC_SEL`. 
-        
-        Las pequeñas variaciones (típicamente entre 1% y 2%) frente a los comunicados de prensa del INEGI se deben a:
-        1. **Coeficiente de Variación (CV):** Según la metodología de INEGI, las estimaciones tienen niveles de precisión:
-            * 🟢 **Alto:** CV entre 0 y 15%.
-            * 🟡 **Moderado:** CV entre 15 y 30%.
-            * 🔴 **Bajo:** CV superior al 30%.
-        2. **Redondeo y Agregación:** Este tablero utiliza la base de datos cruda para permitir filtros dinámicos.
-        
-        *Última actualización de datos: Diciembre 2025.*
-        """)
-
-else: # Este else está alineado con el 'if df is not None' del inicio
-    st.warning("⚠️ El sistema está listo, pero el archivo 'Master_ENSU_Morelos.parquet' no se encuentra.")
+        st.markdown("""Resultados calculados con microdatos ENSU y factor `FAC_SEL`. 
+                    Variaciones mínimas vs INEGI por Coeficiente de Variación y redondeo dinámico. *Corte: Dic 2025.*""")
+else:
+    st.warning("⚠️ Archivo 'Master_ENSU_Morelos.parquet' no detectado en la carpeta /data.")
