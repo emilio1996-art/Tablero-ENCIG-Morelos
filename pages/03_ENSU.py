@@ -98,7 +98,7 @@ if df_raw is not None:
             pct_peor = (df_reciente[df_reciente['BP1_3'] == '4']['FAC_SEL'].sum() / pob_total_exp) * 100
             pct_mejor = (df_reciente[df_reciente['BP1_3'] == '1']['FAC_SEL'].sum() / pob_total_exp) * 100
             
-            st.markdown(f"#### 📊 Expectativas de Seguridad (Próximos 12 meses)")
+            st.markdown(f"#### 📊 Expectativas de Seguridad (Próximos 12 meses a partir de diciembre)")
             k1, k2, k3 = st.columns(3)
             k1.metric("Seguirá igual de MAL", f"{pct_mal:.1f}%")
             k2.metric("EMPEORARÁ", f"{pct_peor:.1f}%", delta=f"{(pct_mal + pct_peor):.1f}% Negativo", delta_color="inverse")
@@ -161,6 +161,76 @@ if df_raw is not None:
 
     # --- SECCIÓN 2: Desempeño y Problemas de la Ciudad ---
     with tab2:
+        st.header("📈 Tendencia de Efectividad Gubernamental")
+        st.info("Comparativa trimestral: Opinión sobre qué tan efectivo ha sido el gobierno para resolver los principales problemas detectados por la población.")
+
+        lista_efectividad = []
+
+        if not df_filtrado.empty:
+            # 1. Procesamiento por cada trimestre seleccionado
+            for trim in trim_sel:
+                df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                
+                # Limpieza de la columna BP3_2
+                df_t['BP3_2'] = df_t['BP3_2'].astype(str).str.replace('.0', '', regex=False).str.strip()
+                
+                # Cálculo de grupos (Excluyendo '9' No sabe)
+                total_valido = df_t[df_t['BP3_2'].isin(['1', '2', '3', '4'])]['FAC_SEL'].sum()
+                
+                if total_valido > 0:
+                    # Grupo Positivo: Muy / Algo efectivo
+                    pos_sum = df_t[df_t['BP3_2'].isin(['1', '2'])]['FAC_SEL'].sum()
+                    lista_efectividad.append({
+                        'Trimestre': trim,
+                        'Percepción': 'Positiva (Muy/Algo)',
+                        'Porcentaje': (pos_sum / total_valido) * 100
+                    })
+                    
+                    # Grupo Negativo: Poco / Nada efectivo
+                    neg_sum = df_t[df_t['BP3_2'].isin(['3', '4'])]['FAC_SEL'].sum()
+                    lista_efectividad.append({
+                        'Trimestre': trim,
+                        'Percepción': 'Negativa (Poco/Nada)',
+                        'Porcentaje': (neg_sum / total_valido) * 100
+                    })
+
+            if lista_efectividad:
+                df_lineas = pd.DataFrame(lista_efectividad)
+                
+                # Asegurar orden cronológico en el eje X
+                orden_trim = ['1er Trim', '2do Trim', '3er Trim', '4to Trim']
+                df_lineas['Trimestre'] = pd.Categorical(df_lineas['Trimestre'], categories=orden_trim, ordered=True)
+                df_lineas = df_lineas.sort_values('Trimestre')
+
+                # 2. Creación de la gráfica de líneas
+                fig_lineas = px.line(
+                    df_lineas,
+                    x='Trimestre',
+                    y='Porcentaje',
+                    color='Percepción',
+                    markers=True, # Añade puntos en cada trimestre
+                    text=df_lineas['Porcentaje'].apply(lambda x: f'{x:.1f}%'),
+                    title="Evolución de la Percepción de Efectividad Gubernamental",
+                    color_discrete_map={
+                        'Positiva (Muy/Algo)': '#2ECC71', # Verde
+                        'Negativa (Poco/Nada)': '#E74C3C'  # Rojo
+                    },
+                    category_orders={"Trimestre": orden_trim}
+                )
+
+                fig_lineas.update_traces(textposition="top center")
+                fig_lineas.update_layout(
+                    yaxis_range=[0, 105], # Escala de 0 a 100
+                    xaxis_title=None,
+                    yaxis_title="Porcentaje (%)",
+                    hovermode="x unified"
+                )
+
+                st.plotly_chart(fig_lineas, use_container_width=True)
+            else:
+                st.warning("No hay datos suficientes para generar la línea de tendencia.")
+        
+        st.markdown("---")
         st.header("🏙️ Problemática Urbana")
         st.info("Porcentaje de la población que identifica los siguientes temas como los problemas más importantes.")
 
@@ -244,11 +314,93 @@ if df_raw is not None:
                 st.warning("No se encontraron registros afirmativos ('1') para estos problemas.")
         else:
             st.error("No hay datos cargados en el DataFrame filtrado.")
+
+        # --- SECCIÓN 4: Corrupción (Semestral) ---
+    # Nota: Puedes colocar esto en tab2 o crear un nuevo tab4
+    with tab2:
+        st.header("⚖️ Incidencia de Corrupción")
+        st.info("Comparativa semestral de experiencias de corrupción en trámites y contacto con la policía.")
+
+        lista_corrupcion = []
+
+        if not df_filtrado.empty:
+            # Filtramos solo los trimestres que tienen esta información
+            trims_corrupcion = [t for t in trim_sel if "2do" in str(t) or "4to" in str(t)]
+
+            for trim in trims_corrupcion:
+                df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                
+                # Mapeo de Trimestre a Semestre para la etiqueta
+                etiqueta_semestre = "1er Semestre" if "2do" in str(trim) else "2do Semestre"
+                
+                # Limpieza de columnas
+                for c in ['BP3_3', 'BP3_4', 'BP3_5', 'BP3_6']:
+                    if c in df_t.columns:
+                        df_t[c] = df_t[c].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+
+                # A. Corrupción en Trámites (Filtro BP3_3 == '1')
+                df_tramite = df_t[df_t['BP3_3'] == '1']
+                df_v_tramite = df_tramite[df_tramite['BP3_4'].isin(['1', '2'])]
+                if not df_v_tramite.empty:
+                    si = df_v_tramite[df_v_tramite['BP3_4'] == '1']['FAC_SEL'].sum()
+                    tot = df_v_tramite['FAC_SEL'].sum()
+                    if tot > 0:
+                        lista_corrupcion.append({
+                            'Sector': 'Trámites y Servicios',
+                            'Temporalidad': etiqueta_semestre,
+                            'Porcentaje': (si / tot) * 100
+                        })
+
+                # B. Corrupción Policial (Filtro BP3_5 == '1')
+                df_policia = df_t[df_t['BP3_5'] == '1']
+                df_v_policia = df_policia[df_policia['BP3_6'].isin(['1', '2'])]
+                if not df_v_policia.empty:
+                    si_p = df_v_policia[df_v_policia['BP3_6'] == '1']['FAC_SEL'].sum()
+                    tot_p = df_v_policia['FAC_SEL'].sum()
+                    if tot_p > 0:
+                        lista_corrupcion.append({
+                            'Sector': 'Seguridad Pública',
+                            'Temporalidad': etiqueta_semestre,
+                            'Porcentaje': (si_p / tot_p) * 100
+                        })
+
+            if lista_corrupcion:
+                df_p_corr = pd.DataFrame(lista_corrupcion)
+                
+                # Definimos el orden de los semestres para la gráfica
+                orden_sem = ["1er Semestre", "2do Semestre"]
+                
+                # Gráfica VERTICAL
+                fig_corr = px.bar(
+                    df_p_corr,
+                    x='Sector',
+                    y='Porcentaje',
+                    color='Temporalidad',
+                    barmode='group',
+                    text_auto='.1f',
+                    title="Prevalencia de Corrupción por Semestre (Morelos)",
+                    color_discrete_map={
+                        "1er Semestre": "#EF553B", 
+                        "2do Semestre": "#B00020"
+                    },
+                    category_orders={"Temporalidad": orden_sem},
+                    height=500
+                )
+                
+                fig_corr.update_layout(
+                    yaxis_title="Porcentaje (%)",
+                    xaxis_title=None,
+                    legend_title="Periodo Semestral"
+                )
+                
+                st.plotly_chart(fig_corr, use_container_width=True)
+            else:
+                st.warning("No hay datos de corrupción para los periodos seleccionados.")
                     
     # --- SECCIÓN 3: Acoso y Violencia ---
     with tab3:
         st.header("⚠️ Acoso y Violencia Sexual")
-        st.info("Nota: Este módulo se aplica únicamente durante el 2do y 4to trimestre de cada año.")
+        st.info("Nota: Este módulo se divide en primer y segundo semestre del año.")
 
         # 1. Filtro específico por Sexo (Default ambos para comparativa)
         sexo_opciones = {1: "Hombre", 2: "Mujer"}
