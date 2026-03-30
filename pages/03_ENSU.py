@@ -62,7 +62,7 @@ if df_raw is not None:
         'BP1_2_11', 'BP1_2_12', 'BP1_4_1', 'BP1_4_2', 'BP1_4_3', 'BP1_4_4', 
         'BP1_4_5', 'BP1_4_6', 'BP1_4_7', 'BP1_4_8', 'BP1_5_1', 'BP1_5_2', 
         'BP1_5_3', 'BP1_5_4', 'BP1_5_5', 'SEXO', 'BP4_1_1', 'BP4_1_2', 'BP4_1_3', 'BP4_1_4', 'BP4_1_5', 
-    'BP4_1_6', 'BP4_1_7', 'BP4_1_8', 'BP4_1_9', 'SEXO'
+    'BP4_1_6', 'BP4_1_7', 'BP4_1_8', 'BP4_1_9', 'SEXO', 'BP1_7_1', 'BP1_7_2', 'BP1_7_3', 'BP1_7_4', 'BP1_7_5', 'BP1_7_6',
     ]
     df = limpiar_columnas_inegi(df_raw, cols_control)
 
@@ -105,7 +105,7 @@ if df_raw is not None:
             k3.metric("MEJORARÁ", f"{pct_mejor:.1f}%")
 
     # --- 5. SECCIONES (TABS) ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛡️ Percepción", "🏗️ Desempeño", "⚠️ Acoso", "🤝 Confianza", "🏘️ Victimización"])
+    tab1, tab2, tab3, tab5 = st.tabs(["🛡️ Percepción", "🏗️ Desempeño y Confianza", "⚠️ Acoso", "🏘️ Victimización"])
 
     with tab1:
         if not df_filtrado.empty:
@@ -397,6 +397,172 @@ if df_raw is not None:
                 st.plotly_chart(fig_corr, use_container_width=True)
             else:
                 st.warning("No hay datos de corrupción para los periodos seleccionados.")
+
+        st.header("🎖️ Desempeño de Autoridades de Seguridad")
+        st.info("Porcentaje de la población que considera 'Muy' o 'Algo Efectivo' el desempeño de la institución (Datos Trimestrales).")
+
+        # 1. Diccionario de Autoridades y sus columnas de Identificación (Filtro) y Desempeño (Métrica)
+        # Asegúrate de que el orden sea el que deseas ver en el eje Y
+        dict_autoridades = {
+            'Policía Municipal':          {'id': 'BP1_7_1', 'perf': 'BP1_8_1'},
+            'Policía Estatal':        {'id': 'BP1_7_2', 'perf': 'BP1_8_2'},
+            'Guardia Nacional':{'id': 'BP1_7_3', 'perf': 'BP1_8_3'},
+            'Ejercito': {'id': 'BP1_7_4', 'perf': 'BP1_8_4'},
+            'Fuerza Aérea Mexicana':{'id': 'BP1_7_5', 'perf': 'BP1_8_5'},
+            'Marina': {'id': 'BP1_7_6', 'perf': 'BP1_8_6'} # Opcional, pero suele medirse
+        }
+
+        lista_desempeño = []
+
+        if not df_filtrado.empty:
+            for trim in trim_sel:
+                df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                
+                # Pre-limpieza masiva de todas las columnas necesarias
+                cols_to_clean = []
+                for v in dict_autoridades.values():
+                    cols_to_clean.extend([v['id'], v['perf']])
+                
+                for c in cols_to_clean:
+                    if c in df_t.columns:
+                        # Limpieza robusta para asegurar comparación textual ('1', '2', etc.)
+                        df_t[c] = df_t[c].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+
+                # Procesamiento por autoridad
+                for nombre, cols in dict_autoridades.items():
+                    if cols['id'] in df_t.columns and cols['perf'] in df_t.columns:
+                        
+                        # A. APLICACIÓN DEL FILTRO DE IDENTIFICACIÓN: Solo quienes conocen a la institución (1='Sí')
+                        df_identifica = df_t[df_t[cols['id']] == '1']
+                        
+                        if not df_identifica.empty:
+                            # B. METODOLOGÍA DE EFECTIVIDAD: Muy (1) + Algo (2) Efectivo
+                            # Denominador: Respuestas válidas (1, 2, 3, 4, 9)
+                            df_v = df_identifica[df_identifica[cols['perf']].isin(['1', '2', '3', '4', '9'])]
+                            
+                            if not df_v.empty:
+                                # Numerador: Ponderación de FAC_SEL de quienes dijeron Muy(1) o Algo(2) Efectivo
+                                pos_sum = df_v[df_v[cols['perf']].isin(['1', '2'])]['FAC_SEL'].sum()
+                                tot_sum = df_v['FAC_SEL'].sum()
+                                
+                                if tot_sum > 0:
+                                    lista_desempeño.append({
+                                        'Autoridad': nombre,
+                                        'Trimestre': trim,
+                                        'Efectividad Positiva': (pos_sum / tot_sum) * 100
+                                    })
+
+            if lista_desempeño:
+                df_perf = pd.DataFrame(lista_desempeño)
+                
+                # Pivotar los datos para el formato de Mapa de Calor
+                df_pivot = df_perf.pivot(index='Autoridad', columns='Trimestre', values='Efectividad Positiva')
+                
+                # Ordenar dinámicamente las autoridades por promedio de efectividad (Mayor arriba)
+                # Opcional: Si prefieres el orden fijo del diccionario, comenta esta línea.
+                # df_pivot = df_pivot.reindex(df_perf.groupby('Autoridad')['Efectividad Positiva'].mean().sort_values(ascending=False).index)
+                
+                # Asegurar orden cronológico en el eje X (Trimestres)
+                orden_trim = ['1er Trim', '2do Trim', '3er Trim', '4to Trim']
+                cols_reindex = [c for c in orden_trim if c in df_pivot.columns]
+                df_pivot = df_pivot.reindex(columns=cols_reindex)
+
+                # 2. Creación del Mapa de Calor con Plotly
+                fig_perf = px.imshow(
+                    df_pivot,
+                    labels=dict(x="Periodo", y="Institución", color="Efectividad (%)"),
+                    x=df_pivot.columns,
+                    y=df_pivot.index,
+                    color_continuous_scale='Greens', # De verde claro a verde intenso
+                    text_auto='.1f',
+                    title="Percepción de Efectividad en el Desempeño de Autoridades"
+                )
+
+                # Ajuste de layout
+                fig_perf.update_layout(height=500)
+                st.plotly_chart(fig_perf, use_container_width=True)
+            else:
+                st.warning("No se encontraron registros válidos para calcular la efectividad en los trimestres seleccionados.")
+        st.header("🤝 Confianza en las Instituciones")
+        st.info("Porcentaje de la población que manifiesta tener 'Mucha' o 'Algo' de confianza en la autoridad (Solo informantes que identifican a la institución).")
+
+        # 1. Diccionario de Autoridades: ID (Filtro identificación) y Trust (Métrica confianza)
+        dict_confianza = {
+            'Policía Municipal':          {'id': 'BP1_7_1', 'trust': 'BP1_9_1'},
+            'Policía Estatal':        {'id': 'BP1_7_2', 'trust': 'BP1_9_2'},
+            'Guardia Nacional':{'id': 'BP1_7_3', 'trust': 'BP1_9_3'},
+            'Ejército': {'id': 'BP1_7_4', 'trust': 'BP1_9_4'},
+            'Fuerza Aérea Mexicana':{'id': 'BP1_7_5', 'trust': 'BP1_9_5'},
+            'Marina ': {'id': 'BP1_7_6', 'trust': 'BP1_9_6'}
+        }
+
+        lista_confianza = []
+
+        if not df_filtrado.empty:
+            for trim in trim_sel:
+                df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                
+                # Limpieza de datos
+                cols_clean = []
+                for v in dict_confianza.values():
+                    cols_clean.extend([v['id'], v['trust']])
+                
+                for c in cols_clean:
+                    if c in df_t.columns:
+                        df_t[c] = df_t[c].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+
+                for nombre, cols in dict_confianza.items():
+                    if cols['id'] in df_t.columns and cols['trust'] in df_t.columns:
+                        
+                        # FILTRO: Solo quienes identifican a la autoridad (1='Sí')
+                        df_id = df_t[df_t[cols['id']] == '1']
+                        
+                        if not df_id.empty:
+                            # MÉTRICA: Mucha (1) + Algo (2) de confianza
+                            # Denominador: Respuestas válidas (1, 2, 3, 4)
+                            df_v = df_id[df_id[cols['trust']].isin(['1', '2', '3', '4', '9'])]
+                            
+                            if not df_v.empty:
+                                si_confia = df_v[df_v[cols['trust']].isin(['1', '2'])]['FAC_SEL'].sum()
+                                total_resp = df_v['FAC_SEL'].sum()
+                                
+                                if total_resp > 0:
+                                    lista_confianza.append({
+                                        'Autoridad': nombre,
+                                        'Trimestre': trim,
+                                        'Confianza (%)': (si_confia / total_resp) * 100
+                                    })
+
+            if lista_confianza:
+                df_conf = pd.DataFrame(lista_confianza)
+                
+                # Pivotar para el Heatmap
+                df_pivot_conf = df_conf.pivot(index='Autoridad', columns='Trimestre', values='Confianza (%)')
+                
+                # Ordenar por nivel de confianza promedio (Mayor arriba)
+                orden_nivel = df_conf.groupby('Autoridad')['Confianza (%)'].mean().sort_values(ascending=True).index
+                df_pivot_conf = df_pivot_conf.reindex(orden_nivel)
+
+                # Ordenar Trimestres en Eje X
+                orden_t = ['1er Trim', '2do Trim', '3er Trim', '4to Trim']
+                cols_x = [c for c in orden_t if c in df_pivot_conf.columns]
+                df_pivot_conf = df_pivot_conf.reindex(columns=cols_x)
+
+                # 2. Gráfica
+                fig_conf = px.imshow(
+                    df_pivot_conf,
+                    labels=dict(x="Periodo", y="Institución", color="Confianza (%)"),
+                    x=df_pivot_conf.columns,
+                    y=df_pivot_conf.index,
+                    color_continuous_scale='Blues', # Escala de azules para diferenciar de "Efectividad"
+                    text_auto='.1f',
+                    title="Nivel de Confianza en Autoridades de Seguridad"
+                )
+
+                fig_conf.update_layout(height=500)
+                st.plotly_chart(fig_conf, use_container_width=True)
+            else:
+                st.warning("No hay datos suficientes para calcular la confianza en este periodo.")
                     
     # --- SECCIÓN 3: Acoso y Violencia ---
     with tab3:
