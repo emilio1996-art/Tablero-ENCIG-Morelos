@@ -105,7 +105,7 @@ if df_raw is not None:
             k3.metric("MEJORARÁ", f"{pct_mejor:.1f}%")
 
     # --- 5. SECCIONES (TABS) ---
-    tab1, tab2, tab3, tab4 = st.tabs(["🛡️ Percepción", "🏗️ Desempeño", "⚠️ Acoso", "🤝 Confianza"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛡️ Percepción", "🏗️ Desempeño", "⚠️ Acoso", "🤝 Confianza", "🏘️ Victimización"])
 
     with tab1:
         if not df_filtrado.empty:
@@ -140,7 +140,12 @@ if df_raw is not None:
 
             for titulo, config in secciones.items():
                 st.markdown("---")
-                st.subheader(titulo)
+                if "Lugares" in titulo:
+                    st.info("Que tan insegura se siente la población por lugar.")
+                if "Hábitos" in titulo:
+                    st.info("Porcentaje de la población que ha dejado de hacer actividades recurrentes por motivo de inseguridad.")
+                if "Antisociales" in titulo:
+                    st.info("Porcentaje de la población que ha detectado situaciones de riesgo en su entorno.")
                 res_list = []
                 for col, nom in config["dict"].items():
                     if col in df_filtrado.columns:
@@ -155,9 +160,6 @@ if df_raw is not None:
                 if res_list:
                     df_p = pd.DataFrame(res_list)
                     st.plotly_chart(crear_grafica_barras(df_p, 'Porcentaje', titulo.split()[-1], 'Trimestre', titulo, config["paleta"]), use_container_width=True)
-                
-                if "Hábitos" in titulo:
-                    st.info("**Nota:** Los cambios en hábitos son indicadores clave de la fractura social en Morelos.")
 
     # --- SECCIÓN 2: Desempeño y Problemas de la Ciudad ---
     with tab2:
@@ -316,7 +318,6 @@ if df_raw is not None:
             st.error("No hay datos cargados en el DataFrame filtrado.")
 
         # --- SECCIÓN 4: Corrupción (Semestral) ---
-    # Nota: Puedes colocar esto en tab2 o crear un nuevo tab4
     with tab2:
         st.header("⚖️ Incidencia de Corrupción")
         st.info("Comparativa semestral de experiencias de corrupción en trámites y contacto con la policía.")
@@ -481,6 +482,242 @@ if df_raw is not None:
                 st.warning("No hay datos para los trimestres pares seleccionados.")
         else:
             st.warning("Por favor, selecciona al menos un sexo en el filtro.")
+            
+       #--- SECCIÓN 5: VICTIMIZACIÓN
+    with tab5:
+        st.subheader("🏠 Impacto Total en Hogares")
+        
+        if not df_filtrado.empty:
+            trims_sem = [t for t in trim_sel if "2do" in str(t) or "4to" in str(t)]
+            resumen_hogares = []
+
+            for trim in trims_sem:
+                df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                etiqueta_sem = "1er Semestre" if "2do" in str(trim) else "2do Semestre"
+                
+                # 1. Identificar columnas de victimización
+                cols_v = [f'BP1_6_{i}' for i in range(1, 9)]
+                
+                # 2. Limpieza rápida para asegurar comparación
+                for c in cols_v:
+                    if c in df_t.columns:
+                        df_t[c] = df_t[c].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+                
+                # 3. Lógica de "Hogar Víctima": Si respondió '1' en cualquiera de las columnas
+                # Usamos FAC_VIV como solicitaste para el estimado de hogares
+                hogares_victima_mask = (df_t[cols_v] == '1').any(axis=1)
+                
+                total_hogares_victima = df_t[hogares_victima_mask]['FAC_VIV'].sum()
+                total_hogares_universo = df_t['FAC_VIV'].sum()
+                
+                if total_hogares_universo > 0:
+                    porcentaje_vic = (total_hogares_victima / total_hogares_universo) * 100
+                    resumen_hogares.append({
+                        'Semestre': etiqueta_sem,
+                        'Absoluto': total_hogares_victima,
+                        'Porcentaje': porcentaje_vic
+                    })
+
+            # Display de Resultados (Tarjetas para el semestre más reciente seleccionado)
+            if resumen_hogares:
+                latest = resumen_hogares[-1]
+                col1, col2 = st.columns(2)
+                
+                col1.metric(
+                    label=f"Hogares Víctimas ({latest['Semestre']})", 
+                    value=f"{latest['Absoluto']:,.0f}",
+                    help="Estimado bruto basado en FAC_VIV"
+                )
+                
+                col2.metric(
+                    label=f"Tasa de Victimización ({latest['Semestre']})", 
+                    value=f"{latest['Porcentaje']:.1f}%",
+                    help="Porcentaje del total de hogares que sufrieron al menos un delito"
+                )
+
+                # Gráfica de barras simple para comparar semestres si hay más de uno
+                if len(resumen_hogares) > 1:
+                    df_res = pd.DataFrame(resumen_hogares)
+                    fig_res = px.bar(
+                        df_res, x='Semestre', y='Porcentaje',
+                        text_auto='.1f', title="Evolución de la Tasa de Victimización del Hogar",
+                        color='Semestre', color_discrete_sequence=['#34495E', '#AEB6BF']
+                    )
+                    st.plotly_chart(fig_res, use_container_width=True)
+            else:
+                st.warning("Selecciona periodos semestrales (2do o 4to Trim) para ver el resumen de hogares.")
+                
+        st.header("🏡 Victimización en el hogar")
+        st.info("Incidencia de delitos sufridos por hogar.")
+
+        # 1. Diccionario de delitos (BP1_6_1 a BP1_6_8)
+        dict_delitos = {
+            'BP1_6_1': 'Robo total de vehículo',
+            'BP1_6_2': 'Robo parcial de vehículo',
+            'BP1_6_3': 'Allanamiento de morada',
+            'BP1_6_4': 'Robo o asalto en calle/transporte',
+            'BP1_6_5': 'Robo en forma distinta a las anteriores',
+            'BP1_6_6': 'Extorsión',
+            'BP1_6_7': 'Fraude bancario',
+            'BP1_6_8': 'Fraude al consumidor'
+        }
+
+        lista_victimas = []
+
+        if not df_filtrado.empty:
+            # Filtramos trimestres semestrales (2 y 4)
+            trims_sem = [t for t in trim_sel if "2do" in str(t) or "4to" in str(t)]
+
+            for col, nombre in dict_delitos.items():
+                if col in df_filtrado.columns:
+                    for trim in trims_sem:
+                        df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                        
+                        # Limpieza y normalización
+                        resp = df_t[col].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+                        
+                        # Numerador: Al menos un integrante sufrió el delito (1)
+                        # Denominador: Respuestas válidas (1 y 2)
+                        df_v = df_t[resp.isin(['1', '2'])]
+                        
+                        if not df_v.empty:
+                            si = df_v[resp == '1']['FAC_VIV'].sum()
+                            tot = df_v['FAC_VIV'].sum()
+                            
+                            etiqueta_sem = "1er Sem" if "2do" in str(trim) else "2do Sem"
+                            
+                            if tot > 0:
+                                lista_victimas.append({
+                                    'Delito': nombre,
+                                    'Semestre': etiqueta_sem,
+                                    'Porcentaje': (si / tot) * 100
+                                })
+
+            if lista_victimas:
+                df_heatmap = pd.DataFrame(lista_victimas)
+                
+                # --- MEJORA DE ORDENAMIENTO DINÁMICO ---
+                # 1. Calculamos el promedio de prevalencia de ambos semestres para cada delito
+                df_orden = df_heatmap.groupby('Delito')['Porcentaje'].mean().reset_index()
+                # 2. Ordenamos de mayor a menor incidencia
+                df_orden = df_orden.sort_values(by='Porcentaje', ascending=True) # Ascending=True para que el mayor quede arriba en el eje Y
+                delitos_ordenados = df_orden['Delito'].tolist()
+
+                # Pivotar los datos para el formato de Mapa de Calor
+                df_pivot = df_heatmap.pivot(index='Delito', columns='Semestre', values='Porcentaje')
+                
+                # Reindexar el DataFrame pivotado con el orden calculado
+                # Asegurar que el reindex no de errores si falta algún delito en los datos
+                delitos_reindex = [d for d in delitos_ordenados if d in df_pivot.index]
+                df_pivot_ordenado = df_pivot.reindex(delitos_reindex)
+
+                # Definir orden de semestres
+                orden_semestres = ["1er Sem", "2do Sem"]
+                # Asegurar reindex de columnas
+                columnas_reindex = [c for c in orden_semestres if c in df_pivot_ordenado.columns]
+                df_pivot_ordenado = df_pivot_ordenado.reindex(columns=columnas_reindex)
+
+
+                # 2. Creación del Mapa de Calor con Plotly
+                fig_heat = px.imshow(
+                    df_pivot_ordenado,
+                    labels=dict(x="Periodo Semestral", y="Tipo de Delito", color="Prevalencia (%)"),
+                    x=df_pivot_ordenado.columns,
+                    y=df_pivot_ordenado.index,
+                    color_continuous_scale='YlOrRd', # De amarillo a rojo intenso
+                    text_auto='.1f',
+                    title="Intensidad de Victimización en el Hogar por Semestre"
+                )
+
+                fig_heat.update_layout(height=500)
+                st.plotly_chart(fig_heat, use_container_width=True)
+            else:
+                st.warning("Selecciona el 2do o 4to trimestre para visualizar los datos de victimización.")
+
+        st.subheader("🔢 Volumen Absoluto de Delitos Estimados")
+        st.info("Cantidad total de incidentes delictivos estimados por tipo de delito (Datos Semestrales).")
+
+        # 1. Diccionario de delitos (Mismo que el heatmap para consistencia)
+        dict_delitos = {
+            'BP1_6_1': 'Robo total de vehículo',
+            'BP1_6_2': 'Robo parcial de vehículo',
+            'BP1_6_3': 'Allanamiento de morada',
+            'BP1_6_4': 'Robo o asalto en calle/transporte',
+            'BP1_6_5': 'Robo en forma distinta a las anteriores',
+            'BP1_6_6': 'Extorsión',
+            'BP1_6_7': 'Fraude bancario',
+            'BP1_6_8': 'Fraude al consumidor'
+        }
+
+        lista_volumen_delitos = []
+
+        if not df_filtrado.empty:
+            # Filtramos trimestres semestrales (2 y 4)
+            trims_sem = [t for t in trim_sel if "2do" in str(t) or "4to" in str(t)]
+
+            for col, nombre in dict_delitos.items():
+                if col in df_filtrado.columns:
+                    for trim in trims_sem:
+                        df_t = df_filtrado[df_filtrado['TRIMESTRE'] == trim].copy()
+                        
+                        # Limpieza y normalización de la columna de delito
+                        df_t[col] = df_t[col].astype(str).str.replace('.0', '', regex=False).str.strip().str.get(0)
+                        
+                        # --- METODOLOGÍA DE VOLUMEN ABSOLUTO ---
+                        # Sumamos el factor de expansión de VIVIENDA (FAC_VIV) 
+                        # de cada registro que haya dicho 'Sí' (1) a este delito específico.
+                        total_delitos_tipo = df_t[df_t[col] == '1']['FAC_SEL'].sum()
+                        
+                        etiqueta_sem = "1er Sem" if "2do" in str(trim) else "2do Sem"
+                        
+                        if total_delitos_tipo > 0:
+                            lista_volumen_delitos.append({
+                                'Tipo de Delito': nombre,
+                                'Temporalidad': etiqueta_sem,
+                                'Volumen Absoluto': total_delitos_tipo
+                            })
+
+            if lista_volumen_delitos:
+                df_volumen = pd.DataFrame(lista_volumen_delitos)
+                
+                # Ordenar dinámicamente: el delito con mayor volumen absoluto debe quedar arriba
+                # Calculamos el volumen promedio para ordenar
+                df_orden = df_volumen.groupby('Tipo de Delito')['Volumen Absoluto'].mean().reset_index()
+                df_orden = df_orden.sort_values(by='Volumen Absoluto', ascending=True) # Ascending para eje Y invertido
+                delitos_ordenados = df_orden['Tipo de Delito'].tolist()
+
+                # Definir orden de semestres para la gráfica
+                orden_semestres = ["1er Sem", "2do Sem"]
+
+                # 2. Creación de la gráfica de Barras Horizontales Agrupadas
+                fig_volumen = px.bar(
+                    df_volumen,
+                    x='Volumen Absoluto',
+                    y='Tipo de Delito',
+                    color='Temporalidad',
+                    barmode='group', # Barras agrupadas por semestre
+                    orientation='h', # Horizontal para leer bien los nombres largos
+                    text_auto='.0s', # Muestra miles como 'k' o millones como 'M'
+                    title="Estimado de Volumen Absoluto de Delitos por Tipo",
+                    color_discrete_sequence=px.colors.sequential.Tealgrn, # Paleta de verde azulado
+                    category_orders={
+                        "Tipo de Delito": delitos_ordenados,
+                        "Temporalidad": orden_semestres
+                    },
+                    height=600
+                )
+                
+                # Ajuste de layout para legibilidad
+                fig_volumen.update_layout(
+                    xaxis_title="Cantidad de Incidentes Estimados",
+                    yaxis_title=None,
+                    legend_title="Periodo",
+                    xaxis_tickformat=',.0f' # Formato de miles en el eje X
+                )
+                
+                st.plotly_chart(fig_volumen, use_container_width=True)
+            else:
+                st.warning("Selecciona el 2do o 4to trimestre para visualizar el volumen absoluto de delitos.")
 
     # --- 6. NOTA METODOLÓGICA ---
     st.markdown("---")
