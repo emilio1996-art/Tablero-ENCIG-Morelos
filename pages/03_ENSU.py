@@ -68,18 +68,27 @@ if df_raw is not None:
 
     # Sidebar: Filtros
     st.sidebar.header("📅 Filtros de Tiempo")
-    anios = sorted(df['ANIO'].unique(), reverse=True)
-    anio_sel = st.sidebar.multiselect("Año(s)", options=anios, default=anios[0])
+    anio_sel = df['ANIO'].unique().tolist()
     
-    trims_disponibles = sorted(df[df['ANIO'].isin(anio_sel)]['TRIMESTRE'].unique())
+    # 2. El filtro de Trimestre ahora busca en todo el DataFrame
+    trims_disponibles = sorted(df['TRIMESTRE'].unique())
     trim_sel = st.sidebar.multiselect("Trimestre(s)", options=trims_disponibles, default=trims_disponibles)
     
     st.sidebar.markdown("---")
     st.sidebar.header("📍 Ubicación")
-    municipios = sorted(df['NOM_MUN'].unique())
-    mun_sel = st.sidebar.multiselect("Municipio/Ciudad", options=municipios, default=municipios)
+    
+    # Cambio a Selectbox estilo ENVIPE
+    municipios_lista = sorted(df['NOM_MUN'].unique().tolist())
+    mun_sel = st.sidebar.selectbox(
+        "Municipio/Ciudad", 
+        options=["Zona Metro"] + municipios_lista
+    )
 
-    df_filtrado = df[(df['ANIO'].isin(anio_sel)) & (df['TRIMESTRE'].isin(trim_sel)) & (df['NOM_MUN'].isin(mun_sel))]
+    mask = (df['ANIO'].isin(anio_sel)) & (df['TRIMESTRE'].isin(trim_sel))
+    if mun_sel != "Zona Metro":
+        mask &= (df['NOM_MUN'] == mun_sel)
+    
+    df_filtrado = df[mask]
 
     # --- 4. DASHBOARD: KPIs SUPERIORES ---
     if not df_filtrado.empty:
@@ -457,10 +466,9 @@ if df_raw is not None:
                 
                 # Pivotar los datos para el formato de Mapa de Calor
                 df_pivot = df_perf.pivot(index='Autoridad', columns='Trimestre', values='Efectividad Positiva')
-                
-                # Ordenar dinámicamente las autoridades por promedio de efectividad (Mayor arriba)
-                # Opcional: Si prefieres el orden fijo del diccionario, comenta esta línea.
-                # df_pivot = df_pivot.reindex(df_perf.groupby('Autoridad')['Efectividad Positiva'].mean().sort_values(ascending=False).index)
+
+                #Ordenar en modo descendente 
+                df_pivot = df_pivot.reindex(df_pivot.mean(axis=1).sort_values(ascending=False).index) 
                 
                 # Asegurar orden cronológico en el eje X (Trimestres)
                 orden_trim = ['1er Trim', '2do Trim', '3er Trim', '4to Trim']
@@ -473,7 +481,8 @@ if df_raw is not None:
                     labels=dict(x="Periodo", y="Institución", color="Efectividad (%)"),
                     x=df_pivot.columns,
                     y=df_pivot.index,
-                    color_continuous_scale='Greens', # De verde claro a verde intenso
+                    color_continuous_scale='RdYlGn', # Semaforo
+                    range_color=[25, 88],
                     text_auto='.1f',
                     title="Percepción de Efectividad en el Desempeño de Autoridades"
                 )
@@ -540,7 +549,7 @@ if df_raw is not None:
                 df_pivot_conf = df_conf.pivot(index='Autoridad', columns='Trimestre', values='Confianza (%)')
                 
                 # Ordenar por nivel de confianza promedio (Mayor arriba)
-                orden_nivel = df_conf.groupby('Autoridad')['Confianza (%)'].mean().sort_values(ascending=True).index
+                orden_nivel = df_conf.groupby('Autoridad')['Confianza (%)'].mean().sort_values(ascending=False).index
                 df_pivot_conf = df_pivot_conf.reindex(orden_nivel)
 
                 # Ordenar Trimestres en Eje X
@@ -554,7 +563,7 @@ if df_raw is not None:
                     labels=dict(x="Periodo", y="Institución", color="Confianza (%)"),
                     x=df_pivot_conf.columns,
                     y=df_pivot_conf.index,
-                    color_continuous_scale='Blues', # Escala de azules para diferenciar de "Efectividad"
+                    color_continuous_scale='RdYlGn', # Semaforo
                     text_auto='.1f',
                     title="Nivel de Confianza en Autoridades de Seguridad"
                 )
@@ -766,7 +775,7 @@ if df_raw is not None:
                 # 1. Calculamos el promedio de prevalencia de ambos semestres para cada delito
                 df_orden = df_heatmap.groupby('Delito')['Porcentaje'].mean().reset_index()
                 # 2. Ordenamos de mayor a menor incidencia
-                df_orden = df_orden.sort_values(by='Porcentaje', ascending=True) # Ascending=True para que el mayor quede arriba en el eje Y
+                df_orden = df_orden.sort_values(by='Porcentaje', ascending=False) #Mayor a menor
                 delitos_ordenados = df_orden['Delito'].tolist()
 
                 # Pivotar los datos para el formato de Mapa de Calor
@@ -849,7 +858,7 @@ if df_raw is not None:
                 # Ordenar dinámicamente: el delito con mayor volumen absoluto debe quedar arriba
                 # Calculamos el volumen promedio para ordenar
                 df_orden = df_volumen.groupby('Tipo de Delito')['Volumen Absoluto'].mean().reset_index()
-                df_orden = df_orden.sort_values(by='Volumen Absoluto', ascending=True) # Ascending para eje Y invertido
+                df_orden = df_orden.sort_values(by='Volumen Absoluto', ascending=False) # Ascending para eje Y invertido
                 delitos_ordenados = df_orden['Tipo de Delito'].tolist()
 
                 # Definir orden de semestres para la gráfica
