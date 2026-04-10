@@ -83,7 +83,7 @@ try:
         anios_sel = st.sidebar.multiselect(
             "Años a comparar:",
             options=anios_disponibles,
-            default=anios_disponibles[-2:]
+            default=anios_disponibles[-5:]
         )
         
         # Lista de municipios (ya normalizada en la carga de datos)
@@ -158,6 +158,11 @@ try:
                 fig_prev = px.line(df_prev_h, x='Año', y='Porcentaje', markers=True, 
                                   text=df_prev_h['Porcentaje'].apply(lambda x: f"{x:.1f}%"),
                                   title="Porcentaje de Hogares Víctima en Morelos (Tendencia)")
+                
+                # --- ESTA ES LA LÍNEA QUE DEBES AÑADIR ---
+                fig_prev.update_xaxes(type='category') 
+                # -----------------------------------------
+
                 fig_prev.update_traces(textposition="top center", line_color="#E74C3C") 
                 st.plotly_chart(fig_prev, use_container_width=True)
 
