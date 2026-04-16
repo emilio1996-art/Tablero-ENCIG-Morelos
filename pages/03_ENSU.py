@@ -3,9 +3,12 @@ import pandas as pd
 import plotly.express as px
 import os
 import numpy as np
+from utils import mostrar_logo_inegi
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="ENSU - Morelos", layout="wide")
+
+mostrar_logo_inegi()
 
 # Inyectamos CSS para ocultar menús de Streamlit y dar aspecto profesional
 st.markdown("<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
@@ -67,7 +70,6 @@ if df_raw is not None:
     df = limpiar_columnas_inegi(df_raw, cols_control)
 
     # Sidebar: Filtros
-    st.sidebar.header("📅 Filtros de Tiempo")
     anio_sel = df['ANIO'].unique().tolist()
     
     # 2. El filtro de Trimestre ahora busca en todo el DataFrame
@@ -75,7 +77,6 @@ if df_raw is not None:
     trim_sel = st.sidebar.multiselect("Trimestre(s)", options=trims_disponibles, default=trims_disponibles)
     
     st.sidebar.markdown("---")
-    st.sidebar.header("📍 Ubicación")
     
     # Cambio a Selectbox estilo ENVIPE
     municipios_lista = sorted(df['NOM_MUN'].unique().tolist())
