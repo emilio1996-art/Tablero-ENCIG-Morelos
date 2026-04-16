@@ -1,0 +1,7 @@
+# Archivos temporales de Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Caché de Python
+__pycache__/
+*.py[cod]
