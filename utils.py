@@ -5,18 +5,15 @@ def mostrar_logo_inegi():
     """
     Inserta el logo de INEGI desde la carpeta local assets.
     """
-    # Definimos la ruta local exacta que me pasaste
-    # Usamos 'r' antes de las comillas para que Python no se confunda con las barras invertidas
-    ruta_logo = r"C:\Users\esmeralda.bailon\Desktop\EMILIO\PROYECTO_ESTADISTICA_MORELOS\assets\INEGI_Logotipo_8.png"
+    ruta_logo = os.path.join("assets", "INEGI_Logotipo_8.png")
 
     aplicar_estilo_navegacion()
     
     with st.sidebar:
-        # Verificamos si el archivo existe para que no truene la app si mueves la carpeta
         if os.path.exists(ruta_logo):
             st.image(ruta_logo, use_container_width=True)
         else:
-            st.error("No se encontró el logo en la ruta especificada.")
+            st.error(f"No se encontró el logo en: {ruta_logo}")
         
         st.markdown("""
             <div style='text-align: center; margin-top: -15px;'>
